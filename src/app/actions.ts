@@ -2,6 +2,7 @@
 
 import { chatAssistant, ChatAssistantOutput } from "@/ai/flows/chat-assistant-flow";
 import { transcribeVoiceToText } from "@/ai/flows/transcribe-voice-to-text-flow";
+import { diagnoseCropDisease, DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease-flow";
 
 export async function getAiAdvice(query: string, language: string): Promise<ChatAssistantOutput> {
   if (!query) {
@@ -34,5 +35,19 @@ export async function getAiAdviceFromVoice(audioDataUri: string, language: strin
   } catch (error) {
     console.error("Error in getAiAdviceFromVoice:", error);
     throw new Error("Failed to process voice advice.");
+  }
+}
+
+export async function getAiDiagnosisForCrop(photoDataUri: string, language: string): Promise<DiagnoseCropDiseaseOutput> {
+  if (!photoDataUri) {
+    throw new Error("Photo data cannot be empty.");
+  }
+
+  try {
+    const response = await diagnoseCropDisease({ photoDataUri, language });
+    return response;
+  } catch (error) {
+    console.error("Error in getAiDiagnosisForCrop:", error);
+    throw new Error("Failed to get crop diagnosis.");
   }
 }

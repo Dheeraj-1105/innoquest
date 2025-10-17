@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, Send, Bot, User, Languages, AlertCircle, Cloud, Wheat, BarChartHorizontal } from "lucide-react";
+import { Mic, Send, Bot, User, Languages, Cloud, Wheat, BarChartHorizontal, ImageUp } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -12,16 +13,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getAiAdvice, getAiAdviceFromVoice } from "../actions";
+import { getAiAdvice, getAiAdviceFromVoice, getAiDiagnosisForCrop } from "../actions";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+
+type MessageContent = 
+  | string 
+  | { advice: string; weather?: string; market?: string }
+  | { disease: string; recommendation: string }
+  | { image: string };
 
 type Message = {
   id: number;
   role: "user" | "assistant";
-  content: string | { advice: string; weather?: string; market?: string };
+  content: MessageContent;
   timestamp: string;
 };
 
@@ -42,10 +49,11 @@ export function ChatInterface() {
   const audioChunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if(scrollAreaRef.current){
-      scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight });
+      scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });
     }
   }, [messages]);
 
@@ -134,40 +142,90 @@ export function ChatInterface() {
     }
   };
 
-  const renderMessageContent = (content: Message["content"]) => {
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = async () => {
+      const base64Image = reader.result as string;
+      setIsLoading(true);
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now(), role: "user", content: { image: base64Image }, timestamp: new Date().toLocaleTimeString() },
+      ]);
+
+      try {
+        const result = await getAiDiagnosisForCrop(base64Image, language);
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now() + 1, role: "assistant", content: result, timestamp: new Date().toLocaleTimeString() },
+        ]);
+      } catch (error) {
+         toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to analyze image. Please try again.",
+        });
+        setMessages(prev => prev.slice(0, -1));
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    // Reset file input
+    event.target.value = '';
+  };
+
+  const renderMessageContent = (content: MessageContent) => {
     if (typeof content === "string") {
       return <p>{content}</p>;
     }
-
-    return (
-        <div className="space-y-4">
-            <p>{content.advice}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {content.weather && (
-                    <Card className="bg-background/50">
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Weather</CardTitle>
-                            <Cloud className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-muted-foreground">{content.weather}</p>
-                        </CardContent>
-                    </Card>
-                )}
-                {content.market && (
-                    <Card className="bg-background/50">
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">Market Info</CardTitle>
-                            <BarChartHorizontal className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                             <p className="text-sm text-muted-foreground">{content.market}</p>
-                        </CardContent>
-                    </Card>
-                )}
+    if ("image" in content) {
+      return <Image src={content.image} alt="Uploaded crop" width={200} height={200} className="rounded-lg" />;
+    }
+    if ("advice" in content) {
+      return (
+          <div className="space-y-4">
+              <p>{content.advice}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {content.weather && (
+                      <Card className="bg-background/50">
+                          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                              <CardTitle className="text-sm font-medium">Weather</CardTitle>
+                              <Cloud className="h-4 w-4 text-muted-foreground" />
+                          </CardHeader>
+                          <CardContent>
+                              <p className="text-sm text-muted-foreground">{content.weather}</p>
+                          </CardContent>
+                      </Card>
+                  )}
+                  {content.market && (
+                      <Card className="bg-background/50">
+                          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                              <CardTitle className="text-sm font-medium">Market Info</CardTitle>
+                              <BarChartHorizontal className="h-4 w-4 text-muted-foreground" />
+                          </CardHeader>
+                          <CardContent>
+                               <p className="text-sm text-muted-foreground">{content.market}</p>
+                          </CardContent>
+                      </Card>
+                  )}
+              </div>
+          </div>
+      );
+    }
+    if ("disease" in content) {
+        return (
+            <div className="space-y-2">
+                <h4 className="font-bold">Disease Identified: {content.disease}</h4>
+                <p className="font-semibold">Recommendation:</p>
+                <p>{content.recommendation}</p>
             </div>
-        </div>
-    );
+        )
+    }
+
+    return null;
   };
 
   return (
@@ -197,7 +255,7 @@ export function ChatInterface() {
              <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
                 <Bot className="w-16 h-16 mb-4" />
                 <h3 className="text-lg font-semibold">Welcome to AgriAdvisor AI</h3>
-                <p className="max-w-md">You can ask me about crop diseases, weather, market prices, and more. Use the text box below or press the microphone to ask with your voice.</p>
+                <p className="max-w-md">You can ask me about crop diseases, weather, market prices, and more. Use the text box below, press the microphone to ask with your voice, or upload an image of a diseased plant.</p>
             </div>
           )}
           {messages.map((message) => (
@@ -252,7 +310,7 @@ export function ChatInterface() {
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your question here..."
+          placeholder="Type your question or upload an image..."
           className="flex-grow resize-none"
           rows={1}
           onKeyDown={(e) => {
@@ -273,6 +331,16 @@ export function ChatInterface() {
         <Button onClick={handleStartRecording} disabled={isLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
           <Mic className="w-5 h-5" />
         </Button>
+        <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading} size="icon" variant="outline">
+          <ImageUp className="w-5 h-5" />
+        </Button>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleImageUpload}
+          className="hidden"
+          accept="image/*"
+        />
       </div>
     </div>
   );
