@@ -3,10 +3,12 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Wheat, TestTube2, Bug, Droplets, CloudSun, Wind, Droplet, Sunrise, Sunset, TrendingUp } from "lucide-react";
+import { Wheat, TestTube2, Bug, CloudSun, Wind, Droplet, Sunrise, Sunset, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from "@/firebase";
-import { doc, collection, query, orderBy, limit } from "firebase/firestore";
+import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { collection, query, orderBy, limit } from "firebase/firestore";
+import { getDashboardWeather } from "../actions";
+import { useEffect, useState } from "react";
 
 const cropSuggestions = [
   { name: 'Tomatoes', reason: 'High demand in current market' },
@@ -19,16 +21,31 @@ const pestAlerts = [
     { name: 'Bollworm', crop: 'Cotton', severity: 'Medium' },
 ];
 
+type WeatherData = {
+  temperature: number;
+  humidity: number;
+  rainfall: number;
+  location: string;
+  weatherAlerts: string[];
+}
+
 export default function DashboardPage() {
   const { user } = useUser();
   const firestore = useFirestore();
 
-  const weatherDataRef = useMemoFirebase(
-    () => (firestore && user ? doc(firestore, 'weather_data', user.uid) : null), 
-    [firestore, user]
-  );
-  const { data: weatherData, isLoading: isWeatherLoading } = useDoc(weatherDataRef);
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
+  const [isWeatherLoading, setIsWeatherLoading] = useState(true);
   
+  useEffect(() => {
+    const fetchWeather = async () => {
+      setIsWeatherLoading(true);
+      const data = await getDashboardWeather(user?.uid);
+      setWeatherData(data);
+      setIsWeatherLoading(false);
+    };
+    fetchWeather();
+  }, [user]);
+
   const marketDataRef = useMemoFirebase(() => (firestore ? collection(firestore, 'market_data') : null), [firestore]);
   const marketDataQuery = useMemoFirebase(
     () => (marketDataRef ? query(marketDataRef, orderBy('pricePerKg', 'desc'), limit(3)) : null),

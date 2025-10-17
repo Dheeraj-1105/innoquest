@@ -57,7 +57,14 @@ async function getWeatherData(location: string = 'pune') {
     const response = await fetch(url, { cache: 'no-store' }); // Disable caching for live data
     if (!response.ok) {
       console.error(`Error fetching weather data: ${response.statusText}`);
-      return null;
+      // Return a structured null or default object on API error
+      return {
+        temperature: 25,
+        humidity: 60,
+        rainfall: 0,
+        location: `${location} (data unavailable)`,
+        weatherAlerts: ['Could not fetch live data.']
+      };
     }
     const data = await response.json();
     return {
@@ -70,7 +77,13 @@ async function getWeatherData(location: string = 'pune') {
     };
   } catch (error) {
     console.error('Error fetching weather data:', error);
-    return null;
+     return {
+        temperature: 25,
+        humidity: 60,
+        rainfall: 0,
+        location: `${location} (data unavailable)`,
+        weatherAlerts: ['Could not fetch live data.']
+      };
   }
 }
 
@@ -160,4 +173,13 @@ export async function getAiDiagnosisForCrop(
     console.error('Error in getAiDiagnosisForCrop:', error);
     throw new Error('Failed to get crop diagnosis.');
   }
+}
+
+export async function getDashboardWeather(userId: string | undefined) {
+    if (!userId) {
+        return getWeatherData(); // Default location
+    }
+    const farmerProfile = await getFarmerProfile(userId);
+    const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
+    return getWeatherData(location);
 }
