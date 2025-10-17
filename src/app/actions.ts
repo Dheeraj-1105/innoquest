@@ -38,19 +38,30 @@ async function getFarmerProfile(userId: string) {
   }
 }
 
-// Helper to get weather data from Firestore
+// Helper to get live weather data from OpenWeatherMap API
 async function getWeatherData(location: string = 'pune') {
-  try {
-    const { firestore } = initializeFirebase();
-    // In a real application, you might fetch this from OpenWeatherMap API
-    // and update Firestore periodically. For now, we read from Firestore.
-    const weatherDocRef = doc(firestore, 'weather_data', location.toLowerCase());
-    const weatherDoc = await getDoc(weatherDocRef);
-    if (weatherDoc.exists()) {
-      return weatherDoc.data();
-    }
-    console.warn(`Weather data for location "${location}" not found.`);
+  const apiKey = process.env.OPENWEATHER_API_KEY;
+  if (!apiKey) {
+    console.error("OpenWeather API key is not set in environment variables.");
     return null;
+  }
+  const url = `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}&units=metric`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error(`Error fetching weather data: ${response.statusText}`);
+      return null;
+    }
+    const data = await response.json();
+    return {
+      temperature: data.main.temp,
+      humidity: data.main.humidity,
+      // OpenWeather rainfall data can be tricky, this is a simplified representation
+      rainfall: data.rain ? data.rain['1h'] || 0 : 0, 
+      location: data.name,
+      weatherAlerts: data.weather.map((w: any) => w.description)
+    };
   } catch (error) {
     console.error('Error fetching weather data:', error);
     return null;
