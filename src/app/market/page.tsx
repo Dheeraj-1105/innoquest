@@ -1,17 +1,12 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-
-const marketData = [
-  { crop: "Cotton", variety: "Long Staple", market: "Guntur", price: "7,500", trend: "up" },
-  { crop: "Paddy", variety: "Fine", market: "Karnal", price: "3,200", trend: "stable" },
-  { crop: "Tomato", variety: "Hybrid", market: "Nashik", price: "1,800", trend: "down" },
-  { crop: "Soybean", variety: "Yellow", market: "Indore", price: "5,100", trend: "up" },
-  { crop: "Wheat", variety: "Milling", market: "Ludhiana", price: "2,350", trend: "stable" },
-  { crop: "Onion", variety: "Red", market: "Lasalgaon", price: "1,200", trend: "down" },
-];
+import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { collection, query, orderBy } from "firebase/firestore";
 
 const schemes = [
     {
@@ -32,7 +27,20 @@ const schemes = [
 ];
 
 export default function MarketPage() {
-  const TrendArrow = ({ trend }: { trend: string }) => {
+  const firestore = useFirestore();
+
+  const marketDataRef = useMemoFirebase(
+    () => (firestore ? collection(firestore, 'market_data') : null),
+    [firestore]
+  );
+  const marketDataQuery = useMemoFirebase(
+    () => (marketDataRef ? query(marketDataRef, orderBy('date', 'desc')) : null),
+    [marketDataRef]
+  );
+  const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataQuery);
+
+  const TrendArrow = ({ trend }: { trend?: string }) => {
+    // Basic trend simulation. In a real app, you'd compare with previous day's price.
     if (trend === 'up') return <span className="text-green-500">▲</span>;
     if (trend === 'down') return <span className="text-red-500">▼</span>;
     return <span className="text-gray-500">▬</span>;
@@ -52,29 +60,38 @@ export default function MarketPage() {
             <Card className="shadow-lg">
                 <CardHeader>
                     <CardTitle className="text-3xl font-headline">Latest Crop Prices (per Quintal)</CardTitle>
-                    <CardDescription>Prices from major agricultural markets (mandis).</CardDescription>
+                    <CardDescription>Prices from major agricultural markets (mandis), updated daily.</CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                         <TableRow>
                             <TableHead>Crop</TableHead>
-                            <TableHead>Variety</TableHead>
-                            <TableHead>Market</TableHead>
-                            <TableHead className="text-right">Price (INR)</TableHead>
+                            <TableHead>Region</TableHead>
+                            <TableHead className="text-right">Price (INR/Kg)</TableHead>
                         </TableRow>
                         </TableHeader>
                         <TableBody>
-                        {marketData.map((item, index) => (
-                            <TableRow key={index}>
-                            <TableCell className="font-medium">{item.crop}</TableCell>
-                            <TableCell>{item.variety}</TableCell>
-                            <TableCell>{item.market}</TableCell>
-                            <TableCell className="text-right font-semibold">
-                                <TrendArrow trend={item.trend} /> {item.price}
-                            </TableCell>
-                            </TableRow>
-                        ))}
+                        {isMarketLoading ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center">Loading market data...</TableCell>
+                          </TableRow>
+                        ) : marketData && marketData.length > 0 ? (
+                            marketData.map((item) => (
+                              <TableRow key={item.id}>
+                                <TableCell className="font-medium">{item.cropName}</TableCell>
+                                <TableCell>{item.region}</TableCell>
+                                <TableCell className="text-right font-semibold">
+                                  {/* Placeholder for trend */}
+                                  <TrendArrow trend="stable" /> {item.pricePerKg}
+                                </TableCell>
+                              </TableRow>
+                            ))
+                        ) : (
+                           <TableRow>
+                            <TableCell colSpan={3} className="text-center">No market data available.</TableCell>
+                          </TableRow>
+                        )}
                         </TableBody>
                     </Table>
                 </CardContent>

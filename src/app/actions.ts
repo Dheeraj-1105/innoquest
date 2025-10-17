@@ -3,7 +3,7 @@
 import { chatAssistant, ChatAssistantOutput } from "@/ai/flows/chat-assistant-flow";
 import { transcribeVoiceToText } from "@/ai/flows/transcribe-voice-to-text-flow";
 import { diagnoseCropDisease, DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease-flow";
-import { getFirestore, doc, getDoc } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, getDocs, query, limit } from "firebase/firestore";
 import { initializeFirebase } from "@/firebase";
 
 // Helper to get farmer profile
@@ -22,6 +22,40 @@ async function getFarmerProfile(userId: string) {
   }
 }
 
+async function getWeatherData() {
+    try {
+        const { firestore } = initializeFirebase();
+        // Assuming a single weather document for simplicity for now. 
+        // This could be expanded to use user's location.
+        const weatherDocRef = doc(firestore, 'weather_data', 'pune');
+        const weatherDoc = await getDoc(weatherDocRef);
+        if (weatherDoc.exists()) {
+            return weatherDoc.data();
+        }
+        return null;
+    } catch (error) {
+        console.error("Error fetching weather data:", error);
+        return null;
+    }
+}
+
+async function getMarketData() {
+    try {
+        const { firestore } = initializeFirebase();
+        const marketCollectionRef = collection(firestore, 'market_data');
+        const marketQuery = query(marketCollectionRef, limit(5)); // Get latest 5 for context
+        const marketSnapshot = await getDocs(marketQuery);
+        if (!marketSnapshot.empty) {
+            return marketSnapshot.docs.map(doc => doc.data());
+        }
+        return null;
+    } catch (error) {
+        console.error("Error fetching market data:", error);
+        return null;
+    }
+}
+
+
 export async function getAiAdvice(query: string, language: string, userId: string): Promise<ChatAssistantOutput> {
   if (!query) {
     throw new Error("Query cannot be empty.");
@@ -29,7 +63,16 @@ export async function getAiAdvice(query: string, language: string, userId: strin
 
   try {
     const farmerProfile = await getFarmerProfile(userId);
-    const response = await chatAssistant({ query, language, farmerProfile: farmerProfile as any });
+    const weatherData = await getWeatherData();
+    const marketData = await getMarketData();
+    
+    const response = await chatAssistant({ 
+        query, 
+        language, 
+        farmerProfile: farmerProfile as any,
+        weather: weatherData as any,
+        market: marketData as any,
+    });
     return response;
   } catch (error) {
     console.error("Error in getAiAdvice:", error);

@@ -3,10 +3,10 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Wheat, TestTube2, Bug, Droplets, CloudSun, Wind, Droplet, Sunrise, Sunset } from "lucide-react";
+import { Wheat, TestTube2, Bug, Droplets, CloudSun, Wind, Droplet, Sunrise, Sunset, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from "@/firebase";
-import { doc, collection } from "firebase/firestore";
+import { doc, collection, query, orderBy, limit } from "firebase/firestore";
 
 const cropSuggestions = [
   { name: 'Tomatoes', reason: 'High demand in current market' },
@@ -27,7 +27,11 @@ export default function DashboardPage() {
   const { data: weatherData, isLoading: isWeatherLoading } = useDoc(weatherDataRef);
   
   const marketDataRef = useMemoFirebase(() => (firestore ? collection(firestore, 'market_data') : null), [firestore]);
-  const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataRef);
+  const marketDataQuery = useMemoFirebase(
+    () => (marketDataRef ? query(marketDataRef, orderBy('pricePerKg', 'desc'), limit(3)) : null),
+    [marketDataRef]
+  );
+  const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataQuery);
   
   if (!user) {
     return (
@@ -57,23 +61,25 @@ export default function DashboardPage() {
           <Card className="shadow-lg">
             <CardHeader>
               <div className="flex items-center gap-3">
-                <Wheat className="w-8 h-8 text-primary" />
-                <CardTitle className="text-2xl font-headline">Crop Suggestions</CardTitle>
+                <TrendingUp className="w-8 h-8 text-primary" />
+                <CardTitle className="text-2xl font-headline">Top Market Movers</CardTitle>
               </div>
-              <CardDescription>Based on your location, soil, and market trends.</CardDescription>
+              <CardDescription>Crops with the highest market price right now.</CardDescription>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-4">
-                {cropSuggestions.map(crop => (
-                  <li key={crop.name} className="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
-                    <div>
-                      <p className="font-semibold">{crop.name}</p>
-                      <p className="text-sm text-muted-foreground">{crop.reason}</p>
-                    </div>
-                    <Button variant="outline" size="sm">More Info</Button>
-                  </li>
-                ))}
-              </ul>
+              {isMarketLoading ? (<p>Loading market trends...</p>) : marketData && marketData.length > 0 ? (
+                <ul className="space-y-4">
+                  {marketData.map(crop => (
+                    <li key={crop.id} className="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
+                      <div>
+                        <p className="font-semibold">{crop.cropName} <span className="text-sm text-muted-foreground">in {crop.region}</span></p>
+                        <p className="text-lg font-bold text-primary">₹{crop.pricePerKg} / Kg</p>
+                      </div>
+                      <Button variant="outline" size="sm" asChild><Link href="/market">View Market</Link></Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p>Market data not available.</p>}
             </CardContent>
           </Card>
 
@@ -152,14 +158,22 @@ export default function DashboardPage() {
           <Card className="shadow-lg">
             <CardHeader>
                <div className="flex items-center gap-3">
-                <Droplets className="w-8 h-8 text-primary" />
-                <CardTitle className="text-2xl font-headline">Fertilizer Advice</CardTitle>
+                <Wheat className="w-8 h-8 text-primary" />
+                <CardTitle className="text-2xl font-headline">Crop Suggestions</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
-                <p className="font-semibold">For current crop (Cotton):</p>
-                <p className="text-sm text-muted-foreground">Apply 25kg/hectare of Urea in the next 7 days. Ensure proper irrigation after application.</p>
-                <Button variant="link" className="px-0">Read full schedule</Button>
+                 <ul className="space-y-4">
+                {cropSuggestions.map(crop => (
+                  <li key={crop.name} className="flex items-center justify-between p-2 bg-secondary/30 rounded-lg">
+                    <div>
+                      <p className="font-semibold">{crop.name}</p>
+                      <p className="text-sm text-muted-foreground">{crop.reason}</p>
+                    </div>
+                    <Button variant="outline" size="sm">Info</Button>
+                  </li>
+                ))}
+              </ul>
             </CardContent>
           </Card>
         </div>
