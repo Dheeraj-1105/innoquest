@@ -128,11 +128,11 @@ export function ChatInterface() {
           try {
             const result = await getAiAdviceFromVoice(base64Audio, language, user.uid);
             addMessageToDb("assistant", result);
-          } catch (error) {
+          } catch (error: any) {
             toast({
               variant: "destructive",
               title: "Error",
-              description: "Failed to process voice input. Please try again.",
+              description: error.message || "Failed to process voice input. Please try again.",
             });
           } finally {
             setIsLoading(false);
@@ -165,11 +165,11 @@ export function ChatInterface() {
     try {
       const result = await getAiAdvice(userInput, language, user.uid);
       addMessageToDb("assistant", result);
-    } catch (error) {
+    } catch (error: any) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to get advice. Please try again.",
+        description: error.message || "Failed to get advice. Please try again.",
       });
     } finally {
       setIsLoading(false);
@@ -194,11 +194,11 @@ export function ChatInterface() {
       try {
         const result = await getAiDiagnosisForCrop(base64Image, language);
         addMessageToDb("assistant", result);
-      } catch (error) {
+      } catch (error: any) {
          toast({
             variant: "destructive",
             title: "Error",
-            description: "Failed to analyze image. Please try again.",
+            description: error.message || "Failed to analyze image. Please try again.",
         });
       } finally {
         setIsLoading(false);

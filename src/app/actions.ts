@@ -2,6 +2,7 @@
 
 import {
   chatAssistant,
+  ChatAssistantInput,
   ChatAssistantOutput,
 } from '@/ai/flows/chat-assistant-flow';
 import { transcribeVoiceToText } from '@/ai/flows/transcribe-voice-to-text-flow';
@@ -57,7 +58,7 @@ async function getWeatherData(location: string = 'pune') {
     const response = await fetch(url, { cache: 'no-store' }); // Disable caching for live data
     if (!response.ok) {
       console.error(`Error fetching weather data: ${response.statusText}`);
-      // Return a structured null or default object on API error
+      // Fallback to mock data on API error
       return {
         temperature: 25,
         humidity: 60,
@@ -115,22 +116,26 @@ export async function getAiAdvice(
 
   try {
     const farmerProfile = await getFarmerProfile(userId);
-    // Use farmer's location for weather, default to 'pune' if not available
     const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
-    const weatherData = await getWeatherData(location);
-    const marketData = await getMarketData();
-
-    const response = await chatAssistant({
+    
+    // Fetch data and provide safe fallbacks to prevent null values
+    const weatherData = await getWeatherData(location) || { temperature: 25, humidity: 60, rainfall: 0 };
+    const marketData = await getMarketData() || [];
+    
+    const aiInput: ChatAssistantInput = {
       query: queryText,
       language,
-      farmerProfile: farmerProfile as any,
-      weather: weatherData as any,
-      market: marketData as any,
-    });
+      farmerProfile: farmerProfile as ChatAssistantInput['farmerProfile'] || {},
+      weather: weatherData as ChatAssistantInput['weather'],
+      market: marketData as ChatAssistantInput['market'],
+    };
+
+    const response = await chatAssistant(aiInput);
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in getAiAdvice:', error);
-    throw new Error('Failed to get AI advice.');
+    // Be more specific about the error source if possible
+    throw new Error(`Failed to get AI advice: ${error.message}`);
   }
 }
 
@@ -152,9 +157,9 @@ export async function getAiAdviceFromVoice(
 
     const response = await getAiAdvice(transcription, language, userId);
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in getAiAdviceFromVoice:', error);
-    throw new Error('Failed to process voice advice.');
+    throw new Error(`Failed to process voice advice: ${error.message}`);
   }
 }
 
@@ -169,9 +174,9 @@ export async function getAiDiagnosisForCrop(
   try {
     const response = await diagnoseCropDisease({ photoDataUri, language });
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in getAiDiagnosisForCrop:', error);
-    throw new Error('Failed to get crop diagnosis.');
+    throw new Error(`Failed to get crop diagnosis: ${error.message}`);
   }
 }
 
