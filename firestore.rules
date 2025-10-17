@@ -1,0 +1,134 @@
+/**
+ * @fileOverview Firestore Security Rules for the AI-Based Agri-Advisory Platform.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a user-ownership model for farmer profiles and their advisories,
+ * while allowing public read access to crop, market, and weather data. Write access to
+ * crop, market, and weather data is restricted to prevent unauthorized modifications.
+ *
+ * Data Structure:
+ * - /farmers/{farmerId}: Farmer profile data, owned by the user with ID {farmerId}.
+ * - /crop_database/{cropDataId}: Static crop data, publicly readable.
+ * - /market_data/{marketDataId}: Dynamic market data, publicly readable.
+ * - /farmers/{farmerId}/advisories/{advisoryId}: AI advisories for a farmer, owned by the user with ID {farmerId}.
+ * - /weather_data/{weatherDataId}: Weather data, publicly readable.
+ *
+ * Key Security Decisions:
+ * - Farmers can only read and write their own profile data and their own advisories.
+ * - Crop data, market data, and weather data are publicly readable but writable only by admins (not implemented in this ruleset).
+ * - Listing of advisories is restricted to the owner farmer.
+ *
+ * Denormalization for Authorization:
+ * - The `advisories` subcollection is structured under `/farmers/{farmerId}` to avoid `get()` calls.
+ *   Each advisory is implicitly associated with a farmer based on the path.
+ *   This allows rules to directly check `request.auth.uid` against the `farmerId` path parameter,
+ *   making authorization simple and efficient.
+ */
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Rules for farmer profiles. Only the authenticated user (farmer) can access their own profile.
+     * @path /farmers/{farmerId}
+     * @allow (create) User with UID 'farmer123' can create a document at /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (get) User with UID 'farmer123' can read document /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (update) User with UID 'farmer123' can update document /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (delete) User with UID 'farmer123' can delete document /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @deny (create) User with UID 'otherUser' cannot create a document at /farmers/farmer123.
+     * @deny (get) User with UID 'otherUser' cannot read document /farmers/farmer123.
+     * @deny (update) User with UID 'otherUser' cannot update document /farmers/farmer123.
+     * @deny (delete) User with UID 'otherUser' cannot delete document /farmers/farmer123.
+     * @principle Enforces document ownership for writes.
+     */
+    match /farmers/{farmerId} {
+      allow get: if isSignedIn() && isOwner(farmerId);
+      allow list: if false;
+      allow create: if isSignedIn() && isOwner(farmerId) && request.resource.data.id == request.auth.uid;
+      allow update: if isSignedIn() && isExistingOwner(farmerId) && request.resource.data.id == resource.data.id;
+      allow delete: if isSignedIn() && isExistingOwner(farmerId);
+    }
+
+    /**
+     * @description Rules for crop data.  Allows public read access. Write access should be restricted (TODO).
+     * @path /crop_database/{cropDataId}
+     * @allow (get) Any user can read crop data.
+     * @allow (list) Any user can list crop data.
+     * @deny (create) No one can create crop data (TODO: Restrict to admin).
+     * @deny (update) No one can update crop data (TODO: Restrict to admin).
+     * @deny (delete) No one can delete crop data (TODO: Restrict to admin).
+     * @principle Allows public read access for crop data.
+     */
+    match /crop_database/{cropDataId} {
+      allow get, list: if true;
+      allow create, update, delete: if false; // TODO: Add admin role validation once the schema is updated with an ownership field.
+    }
+
+    /**
+     * @description Rules for market data. Allows public read access. Write access should be restricted (TODO).
+     * @path /market_data/{marketDataId}
+     * @allow (get) Any user can read market data.
+     * @allow (list) Any user can list market data.
+     * @deny (create) No one can create market data (TODO: Restrict to admin).
+     * @deny (update) No one can update market data (TODO: Restrict to admin).
+     * @deny (delete) No one can delete market data (TODO: Restrict to admin).
+     * @principle Allows public read access for market data.
+     */
+    match /market_data/{marketDataId} {
+      allow get, list: if true;
+      allow create, update, delete: if false; // TODO: Add admin role validation once the schema is updated with an ownership field.
+    }
+
+    /**
+     * @description Rules for AI advisories. Only the owner farmer can access their own advisories.
+     * @path /farmers/{farmerId}/advisories/{advisoryId}
+     * @allow (create) User with UID 'farmer123' can create an advisory under /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (get) User with UID 'farmer123' can read an advisory under /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (list) User with UID 'farmer123' can list advisories under /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (update) User with UID 'farmer123' can update an advisory under /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @allow (delete) User with UID 'farmer123' can delete an advisory under /farmers/farmer123 if request.auth.uid == 'farmer123'.
+     * @deny (create) User with UID 'otherUser' cannot create an advisory under /farmers/farmer123.
+     * @deny (get) User with UID 'otherUser' cannot read an advisory under /farmers/farmer123.
+     * @deny (list) User with UID 'otherUser' cannot list advisories under /farmers/farmer123.
+     * @deny (update) User with UID 'otherUser' cannot update an advisory under /farmers/farmer123.
+     * @deny (delete) User with UID 'otherUser' cannot delete an advisory under /farmers/farmer123.
+     * @principle Restricts access to a user's own data tree.
+     */
+    match /farmers/{farmerId}/advisories/{advisoryId} {
+      allow get: if isSignedIn() && isOwner(farmerId);
+      allow list: if isSignedIn() && isOwner(farmerId);
+      allow create: if isSignedIn() && isOwner(farmerId) && request.resource.data.farmerId == farmerId;
+      allow update: if isSignedIn() && isExistingOwner(farmerId) && request.resource.data.farmerId == farmerId;
+      allow delete: if isSignedIn() && isExistingOwner(farmerId);
+    }
+
+    /**
+     * @description Rules for weather data. Allows public read access. Write access should be restricted (TODO).
+     * @path /weather_data/{weatherDataId}
+     * @allow (get) Any user can read weather data.
+     * @allow (list) Any user can list weather data.
+     * @deny (create) No one can create weather data (TODO: Restrict to admin).
+     * @deny (update) No one can update weather data (TODO: Restrict to admin).
+     * @deny (delete) No one can delete weather data (TODO: Restrict to admin).
+     * @principle Allows public read access for weather data.
+     */
+    match /weather_data/{weatherDataId} {
+      allow get, list: if true;
+      allow create, update, delete: if false; // TODO: Add admin role validation once the schema is updated with an ownership field.
+    }
+  }
+
+  // Helper functions
+  function isSignedIn() {
+    return request.auth != null;
+  }
+
+  function isOwner(userId) {
+    return request.auth.uid == userId;
+  }
+
+  function isExistingOwner(userId) {
+    return isSignedIn() && isOwner(userId) && resource != null;
+  }
+}
