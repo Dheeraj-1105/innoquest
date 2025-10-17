@@ -1,87 +1,116 @@
+/**
+ * @file Firestore Security Rules
+ * @description This ruleset enforces a strict user-ownership model for farmer profiles and advisories,
+ *              while allowing public read access to crop data, market data, and weather data.
+ *
+ * Data Structure:
+ * - /farmers/{farmerId}: Farmer profile data, accessible only to the farmer themselves.
+ * - /crop_database/{cropDataId}: Static crop data, publicly readable.
+ * - /market_data/{marketDataId}: Daily market prices, publicly readable.
+ * - /farmers/{farmerId}/advisories/{advisoryId}: Chat history and AI recommendations, accessible only to the farmer.
+ * - /weather_data/{weatherDataId}: Weather predictions, publicly readable.
+ *
+ * Key Security Decisions:
+ * - User listing is disallowed.
+ * - Read-only collections (crop_database, market_data, weather_data) are publicly readable.
+ * - All write operations are protected by authorization checks.
+ *
+ * Denormalization for Authorization:
+ * - The 'Advisory' entity's farmerId field is used to enforce ownership in the
+ *   /farmers/{farmerId}/advisories/{advisoryId} path, avoiding the need for `get()` calls.
+ */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     /**
-     * @description This ruleset enforces a strict user-ownership model for farmer profiles.
-     * @path /farmers/{userId}
-     * @allow (read, write): Authenticated user can access their own profile.
-     * @deny (read, write): Authenticated user cannot access another user's profile.
-     * @principle Enforces document ownership for all operations within a user's profile path.
+     * @description Manages access to farmer profiles. Only the authenticated user (the farmer) can read or write their own profile.
+     * @path /farmers/{farmerId}
+     * @allow (create) - User with UID 'user_abc' can create their profile at /farmers/user_abc.
+     * @allow (get, update, delete) - User with UID 'user_abc' can get, update, and delete their profile at /farmers/user_abc.
+     * @deny (create, update, delete) - User with UID 'user_xyz' cannot create, update, or delete the profile at /farmers/user_abc.
+     * @principle Enforces document ownership for writes.
      */
-    match /farmers/{userId} {
-      function isSignedIn() {
-        return request.auth != null;
-      }
+    match /farmers/{farmerId} {
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
+
       function isExistingOwner(userId) {
-        return isSignedIn() && isOwner(userId) && existsAfter(/databases/$(database)/documents/farmers/$(userId));
+        return isOwner(userId) && resource != null;
       }
-      allow get: if isSignedIn() && isOwner(userId);
+
+      allow get: if isOwner(farmerId);
       allow list: if false;
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update, delete: if isExistingOwner(userId);
+      allow create: if isOwner(farmerId) && request.resource.data.id == farmerId;
+      allow update: if isExistingOwner(farmerId) && request.resource.data.id == resource.data.id;
+      allow delete: if isExistingOwner(farmerId);
     }
 
     /**
-     * @description Grants public read access to crop data, while restricting writes.
+     * @description Manages access to crop data. Allows public read access (get, list) to all users.
      * @path /crop_database/{cropDataId}
-     * @allow (get, list): Any user can read crop data.
-     * @deny (create, update, delete): No user can modify crop data.
-     * @principle Enables public read access with enforced write restrictions.
+     * @allow (get, list) - Any user can read crop data.
+     * @deny (create, update, delete) - No user can create, update, or delete crop data without specific authorization (e.g., admin role).
+     * @principle Allows public read access for static crop information; restricts write access.
      */
     match /crop_database/{cropDataId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description Grants public read access to market data, while restricting writes.
+     * @description Manages access to market data. Allows public read access (get, list) to all users.
      * @path /market_data/{marketDataId}
-     * @allow (get, list): Any user can read market data.
-     * @deny (create, update, delete): No user can modify market data.
-     * @principle Enables public read access with enforced write restrictions.
+     * @allow (get, list) - Any user can read market data.
+     * @deny (create, update, delete) - No user can create, update, or delete market data without specific authorization (e.g., admin role).
+     * @principle Allows public read access for dynamic market prices; restricts write access.
      */
     match /market_data/{marketDataId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description This ruleset secures advisories for farmers, enabling read/write access only to the owner.
-     * @path /farmers/{userId}/advisories/{advisoryId}
-     * @allow (create): Authenticated user can create an advisory under their own user ID.
-     * @allow (get, list): Authenticated user can read their own advisories.
-     * @allow (update, delete): Authenticated user can update or delete their own existing advisories.
-     * @deny (create, update, delete, get, list): All other cases are denied.
-     * @principle Secures user-specific data in a subcollection with path-based rules.
+     * @description Manages access to advisories. Only the farmer who owns the advisory can read or write it.
+     * @path /farmers/{farmerId}/advisories/{advisoryId}
+     * @allow (create) - User with UID 'user_abc' can create an advisory under /farmers/user_abc/advisories/adv1.
+     * @allow (get, update, delete) - User with UID 'user_abc' can get, update, and delete their advisory under /farmers/user_abc/advisories/adv1.
+     * @deny (create, update, delete) - User with UID 'user_xyz' cannot create, update, or delete an advisory under /farmers/user_abc/advisories/adv1.
+     * @principle Enforces document ownership for writes within a user-specific subcollection.
      */
-    match /farmers/{userId}/advisories/{advisoryId} {
-      function isSignedIn() {
-        return request.auth != null;
-      }
+    match /farmers/{farmerId}/advisories/{advisoryId} {
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return request.auth != null && request.auth.uid == userId;
       }
+
       function isExistingOwner(userId) {
-        return isSignedIn() && isOwner(userId) && existsAfter(/databases/$(database)/documents/farmers/$(userId)/advisories/$(advisoryId));
+        return isOwner(userId) && resource != null;
       }
-      allow get, list: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update, delete: if isExistingOwner(userId);
+
+      allow get: if isOwner(farmerId);
+      allow list: if isOwner(farmerId);
+      allow create: if isOwner(farmerId) && request.resource.data.farmerId == farmerId;
+      allow update: if isExistingOwner(farmerId) && request.resource.data.farmerId == resource.data.farmerId;
+      allow delete: if isExistingOwner(farmerId);
     }
 
     /**
-     * @description Grants public read access to weather data, while restricting writes.
+     * @description Manages access to weather data. Allows public read access (get, list) to all users.
      * @path /weather_data/{weatherDataId}
-     * @allow (get, list): Any user can read weather data.
-     * @deny (create, update, delete): No user can modify weather data.
-     * @principle Enables public read access with enforced write restrictions.
+     * @allow (get, list) - Any user can read weather data.
+     * @deny (create, update, delete) - No user can create, update, or delete weather data without specific authorization (e.g., admin role).
+     * @principle Allows public read access for weather predictions; restricts write access.
      */
     match /weather_data/{weatherDataId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
   }
 }

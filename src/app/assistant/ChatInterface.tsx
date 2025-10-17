@@ -61,6 +61,7 @@ export function ChatInterface() {
     () => (firestore && user ? collection(firestore, 'farmers', user.uid, 'advisories') : null),
     [firestore, user]
   );
+  
   const advisoriesQuery = useMemoFirebase(
     () => (advisoriesColRef ? query(advisoriesColRef, orderBy('timestamp', 'asc')) : null),
     [advisoriesColRef]
@@ -210,10 +211,10 @@ export function ChatInterface() {
     if (typeof content === "string") {
       return <p>{content}</p>;
     }
-    if ("image" in content) {
+    if (typeof content === 'object' && content && "image" in content) {
       return <Image src={content.image} alt="Uploaded crop" width={200} height={200} className="rounded-lg" />;
     }
-    if ("advice" in content) {
+    if (typeof content === 'object' && content && "advice" in content) {
       return (
           <div className="space-y-4">
               <p>{content.advice}</p>
@@ -244,7 +245,7 @@ export function ChatInterface() {
           </div>
       );
     }
-    if ("disease" in content) {
+    if (typeof content === 'object' && content && "disease" in content) {
         return (
             <div className="space-y-2">
                 <h4 className="font-bold">Disease Identified: {content.disease}</h4>
