@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useRef, useEffect } from "react";
@@ -19,12 +20,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 
 type MessageContent = 
   | string 
-  | { advice: string; weather?: string; market?: string }
+  | { advice: string; weather?: string; market?: string; language?: string; }
   | { disease: string; recommendation: string }
   | { image: string };
 
@@ -79,9 +80,12 @@ export function ChatInterface() {
 
   useEffect(() => {
     if(scrollAreaRef.current){
-      scrollAreaRef.current.scrollTo({ top: scrollAreaRef.current.scrollHeight, behavior: 'smooth' });
+      const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
+      }
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const addMessageToDb = (role: 'user' | 'assistant', content: MessageContent) => {
     if (!advisoriesColRef) return;
@@ -129,7 +133,6 @@ export function ChatInterface() {
               title: "Error",
               description: "Failed to process voice input. Please try again.",
             });
-            // Note: We don't remove the user message placeholder to maintain chat flow
           } finally {
             setIsLoading(false);
           }
@@ -200,7 +203,6 @@ export function ChatInterface() {
         setIsLoading(false);
       }
     };
-    // Reset file input
     event.target.value = '';
   };
 
@@ -219,7 +221,7 @@ export function ChatInterface() {
                   {content.weather && (
                       <Card className="bg-background/50">
                           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                              <CardTitle className="text-sm font-medium">Weather</CardTitle>
+                              <CardTitle className="text-sm font-medium">Weather Context</CardTitle>
                               <Cloud className="h-4 w-4 text-muted-foreground" />
                           </CardHeader>
                           <CardContent>
@@ -230,7 +232,7 @@ export function ChatInterface() {
                   {content.market && (
                       <Card className="bg-background/50">
                           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                              <CardTitle className="text-sm font-medium">Market Info</CardTitle>
+                              <CardTitle className="text-sm font-medium">Market Context</CardTitle>
                               <BarChartHorizontal className="h-4 w-4 text-muted-foreground" />
                           </CardHeader>
                           <CardContent>
@@ -289,14 +291,14 @@ export function ChatInterface() {
             )}
             <div
               className={cn(
-                "max-w-md rounded-lg px-4 py-3",
+                "max-w-2xl rounded-lg px-4 py-3",
                 message.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary"
               )}
             >
               {renderMessageContent(message.content)}
-              <p className="text-xs mt-2 opacity-70">{message.timestamp.toString()}</p>
+              <p className="text-xs mt-2 opacity-70">{typeof message.timestamp === 'string' ? message.timestamp : message.timestamp?.toDate()?.toLocaleTimeString()}</p>
             </div>
             {message.role === 'user' && (
               <Avatar>
