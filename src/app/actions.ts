@@ -17,11 +17,13 @@ import {
   getDocs,
   query,
   limit,
+  orderBy,
 } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
 
-// Helper to get farmer profile
+// Helper to get farmer profile from Firestore
 async function getFarmerProfile(userId: string) {
+  if (!userId) return null;
   try {
     const { firestore } = initializeFirebase();
     const farmerDocRef = doc(firestore, 'farmers', userId);
@@ -36,10 +38,12 @@ async function getFarmerProfile(userId: string) {
   }
 }
 
+// Helper to get weather data from Firestore
 async function getWeatherData(location: string = 'pune') {
   try {
     const { firestore } = initializeFirebase();
-    // This could be expanded to use user's location.
+    // In a real application, you might fetch this from OpenWeatherMap API
+    // and update Firestore periodically. For now, we read from Firestore.
     const weatherDocRef = doc(firestore, 'weather_data', location.toLowerCase());
     const weatherDoc = await getDoc(weatherDocRef);
     if (weatherDoc.exists()) {
@@ -53,11 +57,12 @@ async function getWeatherData(location: string = 'pune') {
   }
 }
 
+// Helper to get latest market data from Firestore
 async function getMarketData() {
   try {
     const { firestore } = initializeFirebase();
     const marketCollectionRef = collection(firestore, 'market_data');
-    const marketQuery = query(marketCollectionRef, limit(10)); // Get latest 10 for context
+    const marketQuery = query(marketCollectionRef, orderBy('date', 'desc'), limit(10));
     const marketSnapshot = await getDocs(marketQuery);
     if (!marketSnapshot.empty) {
       return marketSnapshot.docs.map(doc => doc.data());
@@ -70,22 +75,23 @@ async function getMarketData() {
 }
 
 export async function getAiAdvice(
-  query: string,
+  queryText: string,
   language: string,
   userId: string
 ): Promise<ChatAssistantOutput> {
-  if (!query) {
+  if (!queryText) {
     throw new Error('Query cannot be empty.');
   }
 
   try {
     const farmerProfile = await getFarmerProfile(userId);
-    // Use farmer's location for weather data if available
-    const weatherData = await getWeatherData(farmerProfile?.location); 
+    // Use farmer's location for weather, default to 'pune' if not available
+    const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
+    const weatherData = await getWeatherData(location);
     const marketData = await getMarketData();
 
     const response = await chatAssistant({
-      query,
+      query: queryText,
       language,
       farmerProfile: farmerProfile as any,
       weather: weatherData as any,
