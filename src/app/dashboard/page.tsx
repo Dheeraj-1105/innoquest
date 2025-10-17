@@ -23,7 +23,10 @@ export default function DashboardPage() {
   const { user } = useUser();
   const firestore = useFirestore();
 
-  const weatherDataRef = useMemoFirebase(() => (firestore ? doc(firestore, 'weather_data', 'pune') : null), [firestore]);
+  const weatherDataRef = useMemoFirebase(
+    () => (firestore && user ? doc(firestore, 'weather_data', user.uid) : null), 
+    [firestore, user]
+  );
   const { data: weatherData, isLoading: isWeatherLoading } = useDoc(weatherDataRef);
   
   const marketDataRef = useMemoFirebase(() => (firestore ? collection(firestore, 'market_data') : null), [firestore]);
@@ -140,8 +143,8 @@ export default function DashboardPage() {
                 {isWeatherLoading ? (<p>Loading weather...</p>) : weatherData ? (
                 <>
                   <div className="text-center">
-                      <p className="text-6xl font-bold">{weatherData.temperature}°C</p>
-                      <p className="text-muted-foreground">Partly Cloudy</p>
+                      <p className="text-6xl font-bold">{Math.round(weatherData.temperature)}°C</p>
+                      <p className="text-muted-foreground capitalize">{weatherData.weatherAlerts?.[0] || 'Clear Sky'}</p>
                   </div>
                   <Separator />
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -151,7 +154,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-2"><Sunset className="w-4 h-4 text-muted-foreground"/> <span>Sunset: 6:50 PM</span></div>
                   </div>
                 </>
-                ) : <p>Weather data not available.</p>}
+                ) : <p>Could not load live weather. Ensure location is set in your profile.</p>}
             </CardContent>
           </Card>
           

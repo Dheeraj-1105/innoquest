@@ -10,14 +10,13 @@ import {
   DiagnoseCropDiseaseOutput,
 } from '@/ai/flows/diagnose-crop-disease-flow';
 import {
-  getFirestore,
-  doc,
   getDoc,
   collection,
   getDocs,
   query,
   limit,
   orderBy,
+  doc,
 } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
 
@@ -42,13 +41,20 @@ async function getFarmerProfile(userId: string) {
 async function getWeatherData(location: string = 'pune') {
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey) {
-    console.error("OpenWeather API key is not set in environment variables.");
-    return null;
+    console.warn("OpenWeather API key is not set in environment variables. Using mock data.");
+    // Fallback to mock data if API key is missing
+    return {
+      temperature: 28,
+      humidity: 75,
+      rainfall: 0.5,
+      location: 'Pune (Mock)',
+      weatherAlerts: ['Chance of light rain']
+    };
   }
   const url = `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}&units=metric`;
 
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { cache: 'no-store' }); // Disable caching for live data
     if (!response.ok) {
       console.error(`Error fetching weather data: ${response.statusText}`);
       return null;
