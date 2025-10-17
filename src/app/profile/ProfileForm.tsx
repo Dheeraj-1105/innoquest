@@ -30,10 +30,10 @@ import { useEffect } from "react";
 
 const profileSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
-  phone: z.string().regex(/^\d{10}$/, { message: "Please enter a valid 10-digit phone number." }),
+  phone: z.string().regex(/^\d{10}$/, { message: "Please enter a valid 10-digit phone number." }).or(z.literal("")),
   location: z.string().min(2, { message: "Location is required." }),
-  language: z.string({ required_error: "Please select a language." }),
-  crops: z.string().min(3, { message: "Please list at least one crop." }),
+  preferredLanguage: z.string({ required_error: "Please select a language." }),
+  cropsGrown: z.string().min(3, { message: "Please list at least one crop." }),
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
@@ -44,7 +44,7 @@ export function ProfileForm() {
   const firestore = useFirestore();
 
   const userProfileRef = useMemoFirebase(
-    () => (firestore && user ? doc(firestore, "users", user.uid) : null),
+    () => (firestore && user ? doc(firestore, "farmers", user.uid) : null),
     [firestore, user]
   );
 
@@ -56,8 +56,8 @@ export function ProfileForm() {
       name: "",
       phone: "",
       location: "",
-      language: "en",
-      crops: "",
+      preferredLanguage: "en",
+      cropsGrown: "",
     },
   });
 
@@ -67,8 +67,8 @@ export function ProfileForm() {
         name: profileData.name || "",
         phone: profileData.phone || "",
         location: profileData.location || "",
-        language: profileData.language || "en",
-        crops: Array.isArray(profileData.crops) ? profileData.crops.join(', ') : profileData.crops || "",
+        preferredLanguage: profileData.preferredLanguage || "en",
+        cropsGrown: Array.isArray(profileData.cropsGrown) ? profileData.cropsGrown.join(', ') : profileData.cropsGrown || "",
       });
     }
   }, [profileData, form]);
@@ -82,12 +82,12 @@ export function ProfileForm() {
     try {
       const profileToSave = {
         ...data,
-        cropsGrown: data.crops.split(',').map(c => c.trim()).filter(Boolean),
+        cropsGrown: data.cropsGrown.split(',').map(c => c.trim()).filter(Boolean),
         id: user.uid,
         email: user.email,
       };
       
-      const userDocRef = doc(firestore, `users/${user.uid}`);
+      const userDocRef = doc(firestore, `farmers/${user.uid}`);
       setDocumentNonBlocking(userDocRef, profileToSave, { merge: true });
       
       toast({
@@ -153,7 +153,7 @@ export function ProfileForm() {
         </div>
         <FormField
           control={form.control}
-          name="language"
+          name="preferredLanguage"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Preferred Language</FormLabel>
@@ -179,7 +179,7 @@ export function ProfileForm() {
         />
         <FormField
           control={form.control}
-          name="crops"
+          name="cropsGrown"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Crops Grown</FormLabel>

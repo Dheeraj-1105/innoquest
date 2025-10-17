@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, Send, Bot, User, Languages, Cloud, Wheat, BarChartHorizontal, ImageUp } from "lucide-react";
+import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -18,6 +18,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
+import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { collection, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 
 type MessageContent = 
   | string 
@@ -26,10 +29,10 @@ type MessageContent =
   | { image: string };
 
 type Message = {
-  id: number;
+  id: string;
   role: "user" | "assistant";
   content: MessageContent;
-  timestamp: string;
+  timestamp: any;
 };
 
 const languages = [
@@ -50,6 +53,29 @@ export function ChatInterface() {
   const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { user } = useUser();
+  const firestore = useFirestore();
+
+  const advisoriesColRef = useMemoFirebase(
+    () => (firestore && user ? collection(firestore, 'farmers', user.uid, 'advisories') : null),
+    [firestore, user]
+  );
+  const advisoriesQuery = useMemoFirebase(
+    () => (advisoriesColRef ? query(advisoriesColRef, orderBy('timestamp', 'asc')) : null),
+    [advisoriesColRef]
+  );
+
+  const { data: chatHistory, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery);
+
+  useEffect(() => {
+    if (chatHistory) {
+      const formattedHistory = chatHistory.map(msg => ({
+        ...msg,
+        timestamp: msg.timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
+      }));
+      setMessages(formattedHistory);
+    }
+  }, [chatHistory]);
 
   useEffect(() => {
     if(scrollAreaRef.current){
@@ -57,7 +83,20 @@ export function ChatInterface() {
     }
   }, [messages]);
 
+  const addMessageToDb = (role: 'user' | 'assistant', content: MessageContent) => {
+    if (!advisoriesColRef) return;
+    addDocumentNonBlocking(advisoriesColRef, {
+      role,
+      content,
+      timestamp: serverTimestamp(),
+    });
+  };
+
   const handleStartRecording = async () => {
+    if (!user) {
+        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to use the voice assistant.' });
+        return;
+    }
     if (isRecording) {
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
@@ -79,24 +118,18 @@ export function ChatInterface() {
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
           setIsLoading(true);
-          setMessages((prev) => [
-            ...prev,
-            { id: Date.now(), role: "user", content: "🎤 Voice message", timestamp: new Date().toLocaleTimeString() },
-          ]);
-
+          addMessageToDb("user", "🎤 Voice message");
+          
           try {
-            const result = await getAiAdviceFromVoice(base64Audio, language);
-            setMessages((prev) => [
-              ...prev,
-              { id: Date.now() + 1, role: "assistant", content: result, timestamp: new Date().toLocaleTimeString() },
-            ]);
+            const result = await getAiAdviceFromVoice(base64Audio, language, user.uid);
+            addMessageToDb("assistant", result);
           } catch (error) {
             toast({
               variant: "destructive",
               title: "Error",
               description: "Failed to process voice input. Please try again.",
             });
-            setMessages(prev => prev.slice(0, -1)); // Remove user message placeholder
+            // Note: We don't remove the user message placeholder to maintain chat flow
           } finally {
             setIsLoading(false);
           }
@@ -116,33 +149,34 @@ export function ChatInterface() {
 
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
+    if (!user) {
+        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to chat.' });
+        return;
+    }
     const userInput = input;
     setInput("");
     setIsLoading(true);
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), role: "user", content: userInput, timestamp: new Date().toLocaleTimeString() },
-    ]);
+    addMessageToDb("user", userInput);
     
     try {
-      const result = await getAiAdvice(userInput, language);
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now() + 1, role: "assistant", content: result, timestamp: new Date().toLocaleTimeString() },
-      ]);
+      const result = await getAiAdvice(userInput, language, user.uid);
+      addMessageToDb("assistant", result);
     } catch (error) {
       toast({
         variant: "destructive",
         title: "Error",
         description: "Failed to get advice. Please try again.",
       });
-      setMessages(prev => prev.slice(0, -1)); // Remove user message
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user) {
+        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to upload an image.' });
+        return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -151,24 +185,17 @@ export function ChatInterface() {
     reader.onload = async () => {
       const base64Image = reader.result as string;
       setIsLoading(true);
-      setMessages((prev) => [
-        ...prev,
-        { id: Date.now(), role: "user", content: { image: base64Image }, timestamp: new Date().toLocaleTimeString() },
-      ]);
+      addMessageToDb("user", { image: base64Image });
 
       try {
         const result = await getAiDiagnosisForCrop(base64Image, language);
-        setMessages((prev) => [
-          ...prev,
-          { id: Date.now() + 1, role: "assistant", content: result, timestamp: new Date().toLocaleTimeString() },
-        ]);
+        addMessageToDb("assistant", result);
       } catch (error) {
          toast({
             variant: "destructive",
             title: "Error",
             description: "Failed to analyze image. Please try again.",
         });
-        setMessages(prev => prev.slice(0, -1));
       } finally {
         setIsLoading(false);
       }
@@ -227,6 +254,74 @@ export function ChatInterface() {
 
     return null;
   };
+  
+  const DisplayMessages = () => {
+    if (isHistoryLoading) {
+      return (
+        <div className="flex justify-center items-center h-full">
+          <p>Loading chat history...</p>
+        </div>
+      );
+    }
+    if (messages.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
+           <Bot className="w-16 h-16 mb-4" />
+           <h3 className="text-lg font-semibold">Welcome to AgriAdvisor AI</h3>
+           <p className="max-w-md">{user ? "You can ask me about crop diseases, weather, market prices, and more." : "Please log in to start a conversation."}</p>
+       </div>
+      )
+    }
+    return (
+      <div className="space-y-6">
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={cn(
+              "flex items-start gap-3",
+              message.role === "user" ? "justify-end" : "justify-start"
+            )}
+          >
+            {message.role === 'assistant' && (
+              <Avatar>
+                <AvatarFallback><Bot /></AvatarFallback>
+              </Avatar>
+            )}
+            <div
+              className={cn(
+                "max-w-md rounded-lg px-4 py-3",
+                message.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary"
+              )}
+            >
+              {renderMessageContent(message.content)}
+              <p className="text-xs mt-2 opacity-70">{message.timestamp.toString()}</p>
+            </div>
+            {message.role === 'user' && (
+              <Avatar>
+                <AvatarFallback>{user?.email?.[0].toUpperCase() || <User />}</AvatarFallback>
+              </Avatar>
+            )}
+          </div>
+        ))}
+         {isLoading && (
+          <div className="flex items-start gap-3 justify-start">
+             <Avatar>
+                <AvatarFallback><Bot /></AvatarFallback>
+              </Avatar>
+            <div className="bg-secondary rounded-lg px-4 py-3">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.3s]"></div>
+                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.15s]"></div>
+                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-card p-4 rounded-lg shadow-lg">
@@ -250,67 +345,14 @@ export function ChatInterface() {
       </div>
 
       <ScrollArea className="flex-grow mb-4 pr-4 -mr-4" ref={scrollAreaRef}>
-        <div className="space-y-6">
-          {messages.length === 0 && (
-             <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
-                <Bot className="w-16 h-16 mb-4" />
-                <h3 className="text-lg font-semibold">Welcome to AgriAdvisor AI</h3>
-                <p className="max-w-md">You can ask me about crop diseases, weather, market prices, and more. Use the text box below, press the microphone to ask with your voice, or upload an image of a diseased plant.</p>
-            </div>
-          )}
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                "flex items-start gap-3",
-                message.role === "user" ? "justify-end" : "justify-start"
-              )}
-            >
-              {message.role === 'assistant' && (
-                <Avatar>
-                  <AvatarFallback><Bot /></AvatarFallback>
-                </Avatar>
-              )}
-              <div
-                className={cn(
-                  "max-w-md rounded-lg px-4 py-3",
-                  message.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary"
-                )}
-              >
-                {renderMessageContent(message.content)}
-                <p className="text-xs mt-2 opacity-70">{message.timestamp}</p>
-              </div>
-              {message.role === 'user' && (
-                <Avatar>
-                  <AvatarFallback><User /></AvatarFallback>
-                </Avatar>
-              )}
-            </div>
-          ))}
-          {isLoading && (
-            <div className="flex items-start gap-3 justify-start">
-               <Avatar>
-                  <AvatarFallback><Bot /></AvatarFallback>
-                </Avatar>
-              <div className="bg-secondary rounded-lg px-4 py-3">
-                <div className="flex items-center space-x-2">
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        <DisplayMessages />
       </ScrollArea>
 
       <div className="flex items-center gap-2">
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your question or upload an image..."
+          placeholder={user ? "Type your question or upload an image..." : "Please log in to chat"}
           className="flex-grow resize-none"
           rows={1}
           onKeyDown={(e) => {
@@ -319,19 +361,19 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={isLoading}
+          disabled={isLoading || !user}
         />
         <Button
           onClick={handleSendMessage}
-          disabled={!input.trim() || isLoading}
+          disabled={!input.trim() || isLoading || !user}
           size="icon"
         >
           <Send className="w-5 h-5" />
         </Button>
-        <Button onClick={handleStartRecording} disabled={isLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
+        <Button onClick={handleStartRecording} disabled={isLoading || !user} size="icon" variant={isRecording ? "destructive" : "outline"}>
           <Mic className="w-5 h-5" />
         </Button>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading} size="icon" variant="outline">
+        <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading || !user} size="icon" variant="outline">
           <ImageUp className="w-5 h-5" />
         </Button>
         <input

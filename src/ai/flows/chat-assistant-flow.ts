@@ -11,9 +11,17 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
+const FarmerProfileSchema = z.object({
+  name: z.string().optional(),
+  location: z.string().optional(),
+  cropsGrown: z.array(z.string()).optional(),
+  preferredLanguage: z.string().optional(),
+}).describe('The profile of the farmer asking the question.');
+
 const ChatAssistantInputSchema = z.object({
   query: z.string().describe('The farmer’s question or query.'),
   language: z.string().describe('The farmer’s preferred language.'),
+  farmerProfile: FarmerProfileSchema.optional(),
 });
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
@@ -35,8 +43,17 @@ const chatAssistantPrompt = ai.definePrompt({
   output: {schema: ChatAssistantOutputSchema},
   prompt: `You are an AI-powered agricultural advisor assisting farmers with their crops.
 
+  A farmer has a question. Use the provided context about the farmer, their location, and the crops they grow to give the best possible advice.
+  
   Respond to the farmer's query in their preferred language, providing actionable advice.
 
+  {{#if farmerProfile}}
+  Farmer's Profile:
+  - Name: {{farmerProfile.name}}
+  - Location: {{farmerProfile.location}}
+  - Crops: {{#each farmerProfile.cropsGrown}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+  {{/if}}
+  
   Farmer's Query: {{{query}}}
   Preferred Language: {{{language}}}
 
@@ -58,7 +75,24 @@ const chatAssistantFlow = ai.defineFlow(
     outputSchema: ChatAssistantOutputSchema,
   },
   async input => {
-    const {output} = await chatAssistantPrompt(input);
+    // In a real app, you would fetch real-time weather and market data here
+    // based on the input.farmerProfile.location and input.farmerProfile.cropsGrown.
+    // For now, we'll pass static data.
+
+    const contextAwareInput = {
+      ...input,
+    };
+    
+    const {output} = await chatAssistantPrompt(contextAwareInput);
+    
+    // Add mock data if the model didn't provide any.
+    if (!output!.weather) {
+      output!.weather = "Partly cloudy, 28°C. Humidity at 72%.";
+    }
+     if (!output!.market) {
+      output!.market = "Cotton prices are up by 3% this week.";
+    }
+
     return output!;
   }
 );

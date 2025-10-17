@@ -1,8 +1,12 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Wheat, TestTube2, Bug, Droplets, CloudSun, Wind, Droplet, Sunrise, Sunset } from "lucide-react";
 import Link from "next/link";
+import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from "@/firebase";
+import { doc, collection } from "firebase/firestore";
 
 const cropSuggestions = [
   { name: 'Tomatoes', reason: 'High demand in current market' },
@@ -16,6 +20,24 @@ const pestAlerts = [
 ];
 
 export default function DashboardPage() {
+  const { user } = useUser();
+  const firestore = useFirestore();
+
+  const weatherDataRef = useMemoFirebase(() => (firestore ? doc(firestore, 'weather_data', 'pune') : null), [firestore]);
+  const { data: weatherData, isLoading: isWeatherLoading } = useDoc(weatherDataRef);
+  
+  const marketDataRef = useMemoFirebase(() => (firestore ? collection(firestore, 'market_data') : null), [firestore]);
+  const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataRef);
+  
+  if (!user) {
+    return (
+      <div className="container mx-auto py-8 px-4 text-center">
+        <h1 className="text-2xl font-bold">Welcome to your Dashboard</h1>
+        <p className="mt-2 text-muted-foreground">Please <Link href="/profile" className="text-primary underline">log in</Link> to view your personalized insights.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
@@ -106,20 +128,24 @@ export default function DashboardPage() {
                 <CloudSun className="w-8 h-8 text-primary" />
                 <CardTitle className="text-2xl font-headline">Weather Today</CardTitle>
               </div>
-              <CardDescription>Your Local Forecast</CardDescription>
+              <CardDescription>{isWeatherLoading ? "Loading..." : weatherData?.location || "Your Local Forecast"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                <div className="text-center">
-                    <p className="text-6xl font-bold">28°C</p>
-                    <p className="text-muted-foreground">Partly Cloudy</p>
-                </div>
-                <Separator />
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="flex items-center gap-2"><Wind className="w-4 h-4 text-muted-foreground"/> <span>Wind: 12 km/h</span></div>
-                    <div className="flex items-center gap-2"><Droplet className="w-4 h-4 text-muted-foreground"/> <span>Humidity: 72%</span></div>
-                    <div className="flex items-center gap-2"><Sunrise className="w-4 h-4 text-muted-foreground"/> <span>Sunrise: 5:45 AM</span></div>
-                    <div className="flex items-center gap-2"><Sunset className="w-4 h-4 text-muted-foreground"/> <span>Sunset: 6:50 PM</span></div>
-                </div>
+                {isWeatherLoading ? (<p>Loading weather...</p>) : weatherData ? (
+                <>
+                  <div className="text-center">
+                      <p className="text-6xl font-bold">{weatherData.temperature}°C</p>
+                      <p className="text-muted-foreground">Partly Cloudy</p>
+                  </div>
+                  <Separator />
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="flex items-center gap-2"><Wind className="w-4 h-4 text-muted-foreground"/> <span>Wind: 12 km/h</span></div>
+                      <div className="flex items-center gap-2"><Droplet className="w-4 h-4 text-muted-foreground"/> <span>Humidity: {weatherData.humidity}%</span></div>
+                      <div className="flex items-center gap-2"><Sunrise className="w-4 h-4 text-muted-foreground"/> <span>Sunrise: 5:45 AM</span></div>
+                      <div className="flex items-center gap-2"><Sunset className="w-4 h-4 text-muted-foreground"/> <span>Sunset: 6:50 PM</span></div>
+                  </div>
+                </>
+                ) : <p>Weather data not available.</p>}
             </CardContent>
           </Card>
           
