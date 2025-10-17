@@ -1,29 +1,29 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Farmers can only read and write to their own profile.
+    // A farmer can read and write to their own profile.
     match /farmers/{farmerId} {
-      allow read, write: if request.auth != null && request.auth.uid == farmerId;
+      allow read, update, delete: if request.auth.uid == farmerId;
+      allow create: if request.auth.uid != null;
+
+      // A farmer can create, read, write, and delete their own advisories.
+      match /advisories/{advisoryId} {
+        allow read, write: if request.auth.uid == farmerId;
+      }
     }
 
-    // Farmers can read, write, update and delete their own advisories.
-    match /farmers/{farmerId}/advisories/{advisoryId} {
-      allow read, write: if request.auth != null && request.auth.uid == farmerId;
-    }
-    
-    // Allow any authenticated user to read from public collections.
+    // Any authenticated user can read public data collections.
     match /crop_database/{docId} {
       allow read: if request.auth != null;
+      allow write: if false; // Only allow writes from trusted server environments
     }
-
     match /market_data/{docId} {
       allow read: if request.auth != null;
+      allow write: if false;
     }
-
     match /weather_data/{docId} {
       allow read: if request.auth != null;
+      allow write: if false;
     }
   }
 }
