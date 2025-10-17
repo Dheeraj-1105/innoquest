@@ -1,3 +1,16 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "hero-farmland",
+      "description": "A vast and lush farmland under a clear sky, representing agriculture and growth.",
+      "imageUrl": "https://picsum.photos/seed/farm/1920/1080",
+      "imageHint": "farmland background"
+    },
+    {
+      "id": "map-placeholder",
+      "description": "A placeholder image of a map for the contact page.",
+      "imageUrl": "https://picsum.photos/seed/map/1200/400",
+      "imageHint": "map location"
+    }
+  ]
 }
