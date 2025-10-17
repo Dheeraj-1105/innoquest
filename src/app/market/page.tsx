@@ -1,12 +1,16 @@
+
 "use client";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowUpRight } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { ArrowUpRight, DatabaseZap } from "lucide-react";
 import Link from "next/link";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, query, orderBy } from "firebase/firestore";
+import { collection, query, orderBy, limit } from "firebase/firestore";
+import { seedMarketData } from "../actions";
+import { useState } from "react";
 
 const schemes = [
     {
@@ -28,22 +32,35 @@ const schemes = [
 
 export default function MarketPage() {
   const firestore = useFirestore();
+  const { toast } = useToast();
+  const [isSeeding, setIsSeeding] = useState(false);
 
   const marketDataRef = useMemoFirebase(
     () => (firestore ? collection(firestore, 'market_data') : null),
     [firestore]
   );
   const marketDataQuery = useMemoFirebase(
-    () => (marketDataRef ? query(marketDataRef, orderBy('date', 'desc')) : null),
+    () => (marketDataRef ? query(marketDataRef, orderBy('date', 'desc'), limit(15)) : null),
     [marketDataRef]
   );
   const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataQuery);
 
-  const TrendArrow = ({ trend }: { trend?: string }) => {
-    // Basic trend simulation. In a real app, you'd compare with previous day's price.
-    if (trend === 'up') return <span className="text-green-500">▲</span>;
-    if (trend === 'down') return <span className="text-red-500">▼</span>;
-    return <span className="text-gray-500">▬</span>;
+  const handleSeedData = async () => {
+    setIsSeeding(true);
+    const result = await seedMarketData();
+    if (result.success) {
+      toast({
+        title: "Success",
+        description: result.message,
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: result.message,
+      });
+    }
+    setIsSeeding(false);
   };
 
   return (
@@ -58,9 +75,15 @@ export default function MarketPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2">
             <Card className="shadow-lg">
-                <CardHeader>
-                    <CardTitle className="text-3xl font-headline">Latest Crop Prices (per Quintal)</CardTitle>
-                    <CardDescription>Prices from major agricultural markets (mandis), updated daily.</CardDescription>
+                <CardHeader className="flex flex-row justify-between items-center">
+                    <div>
+                        <CardTitle className="text-3xl font-headline">Latest Crop Prices (per Kg)</CardTitle>
+                        <CardDescription>Prices from major agricultural markets (mandis), updated daily.</CardDescription>
+                    </div>
+                    <Button onClick={handleSeedData} disabled={isSeeding} variant="outline">
+                      <DatabaseZap className="mr-2 h-4 w-4" />
+                      {isSeeding ? 'Seeding...' : 'Seed Data'}
+                    </Button>
                 </CardHeader>
                 <CardContent>
                     <Table>
@@ -82,14 +105,13 @@ export default function MarketPage() {
                                 <TableCell className="font-medium">{item.cropName}</TableCell>
                                 <TableCell>{item.region}</TableCell>
                                 <TableCell className="text-right font-semibold">
-                                  {/* Placeholder for trend */}
-                                  <TrendArrow trend="stable" /> {item.pricePerKg}
+                                  ₹{item.pricePerKg}
                                 </TableCell>
                               </TableRow>
                             ))
                         ) : (
                            <TableRow>
-                            <TableCell colSpan={3} className="text-center">No market data available.</TableCell>
+                            <TableCell colSpan={3} className="text-center">No market data available. Click "Seed Data" to add some.</TableCell>
                           </TableRow>
                         )}
                         </TableBody>
