@@ -23,6 +23,10 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
+import { useUser, useFirestore, useDoc, useMemoFirebase } from "@/firebase";
+import { setDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { doc } from "firebase/firestore";
+import { useEffect } from "react";
 
 const profileSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -34,15 +38,18 @@ const profileSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
-// Mock server action
-async function saveProfile(data: ProfileFormValues) {
-  console.log("Saving profile:", data);
-  // In a real app, you'd call a database here.
-  return { success: true, message: "Profile updated successfully!" };
-}
-
 export function ProfileForm() {
   const { toast } = useToast();
+  const { user } = useUser();
+  const firestore = useFirestore();
+
+  const userProfileRef = useMemoFirebase(
+    () => (firestore && user ? doc(firestore, "users", user.uid) : null),
+    [firestore, user]
+  );
+
+  const { data: profileData, isLoading } = useDoc<ProfileFormValues>(userProfileRef);
+
   const form = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
@@ -54,21 +61,39 @@ export function ProfileForm() {
     },
   });
 
+  useEffect(() => {
+    if (profileData) {
+      form.reset({
+        name: profileData.name || "",
+        phone: profileData.phone || "",
+        location: profileData.location || "",
+        language: profileData.language || "en",
+        crops: Array.isArray(profileData.crops) ? profileData.crops.join(', ') : profileData.crops || "",
+      });
+    }
+  }, [profileData, form]);
+
   async function onSubmit(data: ProfileFormValues) {
+    if (!user || !firestore) {
+      toast({ variant: "destructive", title: "Error", description: "You must be logged in to save your profile." });
+      return;
+    }
+
     try {
-        const result = await saveProfile(data);
-        if(result.success) {
-            toast({
-                title: "Success",
-                description: result.message,
-            });
-        } else {
-             toast({
-                variant: "destructive",
-                title: "Error",
-                description: "Failed to update profile.",
-            });
-        }
+      const profileToSave = {
+        ...data,
+        cropsGrown: data.crops.split(',').map(c => c.trim()).filter(Boolean),
+        id: user.uid,
+        email: user.email,
+      };
+      
+      const userDocRef = doc(firestore, `users/${user.uid}`);
+      setDocumentNonBlocking(userDocRef, profileToSave, { merge: true });
+      
+      toast({
+          title: "Success",
+          description: "Profile updated successfully!",
+      });
     } catch (error) {
         toast({
             variant: "destructive",
@@ -76,6 +101,10 @@ export function ProfileForm() {
             description: "Something went wrong. Please try again.",
         });
     }
+  }
+
+  if (isLoading) {
+    return <p>Loading profile...</p>;
   }
 
   return (
@@ -128,7 +157,7 @@ export function ProfileForm() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Preferred Language</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select your preferred language" />
