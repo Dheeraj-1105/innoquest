@@ -34,6 +34,7 @@ type Message = {
   role: "user" | "assistant";
   content: MessageContent;
   timestamp: any;
+  processed?: boolean;
 };
 
 const languages = [
@@ -76,24 +77,28 @@ export function ChatInterface() {
         timestamp: msg.timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
       }));
       setMessages(formattedHistory);
-    } else {
+    } else if (!isHistoryLoading) { // Only clear messages if not loading and history is null
       setMessages([]);
     }
-  }, [chatHistory]);
-  
+  }, [chatHistory, isHistoryLoading]);
+
   // Fetch from server if cache fails or is empty on first load
   useEffect(() => {
-      if (historyError || (!isHistoryLoading && !chatHistory && advisoriesQuery)) {
+      if (!isHistoryLoading && (!chatHistory || chatHistory.length === 0) && advisoriesQuery) {
         getDocs(advisoriesQuery).then(snapshot => {
-            const serverData = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                timestamp: doc.data().timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
-            })) as Message[];
-            setMessages(serverData);
+            if (snapshot.empty && messages.length > 0) {
+              setMessages([]); // Clear if local state has messages but server is empty
+            } else if (!snapshot.empty) {
+              const serverData = snapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data(),
+                  timestamp: doc.data().timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
+              })) as Message[];
+              setMessages(serverData);
+            }
         }).catch(err => console.error("Error fetching from server:", err));
       }
-  }, [historyError, isHistoryLoading, chatHistory, advisoriesQuery]);
+  }, [historyError, isHistoryLoading, chatHistory, advisoriesQuery, messages.length]);
 
 
   useEffect(() => {
@@ -212,14 +217,16 @@ export function ChatInterface() {
   // Effect to check if the last message is from the user and set loading state
   useEffect(() => {
     if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.role === 'user') {
+      // Find the last user message
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+      // The AI is "thinking" if the last user message has not been processed yet.
+      if (lastUserMessage && lastUserMessage.processed === false) {
         setIsLoading(true);
       } else {
         setIsLoading(false);
       }
     } else {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   }, [messages]);
 
@@ -381,19 +388,19 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={!user}
+          disabled={!user || isLoading}
         />
         <Button
           onClick={handleSendMessage}
-          disabled={!input.trim() || !user}
+          disabled={!input.trim() || !user || isLoading}
           size="icon"
         >
           <Send className="w-5 h-5" />
         </Button>
-        <Button onClick={handleStartRecording} disabled={!user} size="icon" variant={isRecording ? "destructive" : "outline"}>
+        <Button onClick={handleStartRecording} disabled={!user || isLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
           <Mic className="w-5 h-5" />
         </Button>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={!user} size="icon" variant="outline">
+        <Button onClick={() => fileInputRef.current?.click()} disabled={!user || isLoading} size="icon" variant="outline">
           <ImageUp className="w-5 h-5" />
         </Button>
         <input
