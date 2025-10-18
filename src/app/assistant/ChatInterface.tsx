@@ -20,7 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, serverTimestamp, query, orderBy, getDocs, where } from 'firebase/firestore';
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import Link from "next/link";
 
@@ -68,7 +68,9 @@ export function ChatInterface() {
     [advisoriesColRef]
   );
 
-  const { data: chatHistory, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery);
+  const { data: chatHistory, isLoading: isHistoryLoading, error: historyError } = useCollection<Message>(advisoriesQuery, {
+    source: 'cache'
+  });
 
   useEffect(() => {
     if (chatHistory) {
@@ -81,6 +83,21 @@ export function ChatInterface() {
       setMessages([]);
     }
   }, [chatHistory]);
+  
+  // Fetch from server if cache fails or is empty on first load
+  useEffect(() => {
+      if (historyError || (!isHistoryLoading && !chatHistory && advisoriesQuery)) {
+        getDocs(advisoriesQuery).then(snapshot => {
+            const serverData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
+            })) as Message[];
+            setMessages(serverData);
+        }).catch(err => console.error("Error fetching from server:", err));
+      }
+  }, [historyError, isHistoryLoading, chatHistory, advisoriesQuery]);
+
 
   useEffect(() => {
     if(scrollAreaRef.current){
@@ -93,11 +110,16 @@ export function ChatInterface() {
 
   const addMessageToDb = (role: 'user' | 'assistant', content: MessageContent) => {
     if (!advisoriesColRef) return;
-    addDocumentNonBlocking(advisoriesColRef, {
+    const messageData: any = {
       role,
       content,
+      language,
       timestamp: serverTimestamp(),
-    });
+    };
+    if (role === 'user') {
+      messageData.processed = false; // Mark user messages for the cloud function
+    }
+    addDocumentNonBlocking(advisoriesColRef, messageData);
   };
 
   const handleStartRecording = async () => {
@@ -125,21 +147,8 @@ export function ChatInterface() {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          setIsLoading(true);
           addMessageToDb("user", "🎤 Voice message");
-          
-          try {
-            const result = await getAiAdviceFromVoice(base64Audio, language, user.uid);
-            addMessageToDb("assistant", result);
-          } catch (error: any) {
-            toast({
-              variant: "destructive",
-              title: "Error",
-              description: error.message || "Failed to process voice input. Please try again.",
-            });
-          } finally {
-            setIsLoading(false);
-          }
+          setIsLoading(true); // Show loading until the AI responds
         };
       };
 
@@ -162,21 +171,8 @@ export function ChatInterface() {
     }
     const userInput = input;
     setInput("");
-    setIsLoading(true);
     addMessageToDb("user", userInput);
-    
-    try {
-      const result = await getAiAdvice(userInput, language, user.uid);
-      addMessageToDb("assistant", result);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to get advice. Please try again.",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    setIsLoading(true); // Show loading until the AI responds
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -191,33 +187,20 @@ export function ChatInterface() {
     reader.readAsDataURL(file);
     reader.onload = async () => {
       const base64Image = reader.result as string;
-      setIsLoading(true);
       addMessageToDb("user", { image: base64Image });
-
-      try {
-        const result = await getAiDiagnosisForCrop(base64Image, language);
-        addMessageToDb("assistant", result);
-      } catch (error: any) {
-         toast({
-            variant: "destructive",
-            title: "Error",
-            description: error.message || "Failed to analyze image. Please try again.",
-        });
-      } finally {
-        setIsLoading(false);
-      }
+      setIsLoading(true); // Show loading until AI responds
     };
     event.target.value = '';
   };
   
   const renderAdvice = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urlRegex = /(https?:\/\/[^\s"'<>()]+)/g;
     const parts = text.split(urlRegex);
 
     return parts.map((part, index) => {
       if (part && part.match(urlRegex)) {
         return (
-          <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1 inline-block align-baseline" key={index}>
+          <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1 inline-block align-baseline whitespace-normal break-words" key={index}>
             <Link href={part} target="_blank" rel="noopener noreferrer">
               Apply Here <ArrowUpRight className="w-4 h-4 ml-1 inline-block" />
             </Link>
@@ -230,6 +213,21 @@ export function ChatInterface() {
       return null;
     });
   }
+
+  // Effect to check if the last message is from the user and set loading state
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'user') {
+        setIsLoading(true);
+      } else {
+        setIsLoading(false);
+      }
+    } else {
+        setIsLoading(false);
+    }
+  }, [messages]);
+
 
   const renderMessageContent = (content: MessageContent) => {
     if (typeof content === "string") {
@@ -283,14 +281,14 @@ export function ChatInterface() {
   };
   
   const DisplayMessages = () => {
-    if (isHistoryLoading) {
+    if (isHistoryLoading && messages.length === 0) {
       return (
         <div className="flex justify-center items-center h-full">
           <p>Loading chat history...</p>
         </div>
       );
     }
-    if (messages.length === 0) {
+    if (messages.length === 0 && !isLoading) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
            <Bot className="w-16 h-16 mb-4" />
@@ -388,19 +386,19 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={isLoading || !user}
+          disabled={!user}
         />
         <Button
           onClick={handleSendMessage}
-          disabled={!input.trim() || isLoading || !user}
+          disabled={!input.trim() || !user}
           size="icon"
         >
           <Send className="w-5 h-5" />
         </Button>
-        <Button onClick={handleStartRecording} disabled={isLoading || !user} size="icon" variant={isRecording ? "destructive" : "outline"}>
+        <Button onClick={handleStartRecording} disabled={!user} size="icon" variant={isRecording ? "destructive" : "outline"}>
           <Mic className="w-5 h-5" />
         </Button>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={isLoading || !user} size="icon" variant="outline">
+        <Button onClick={() => fileInputRef.current?.click()} disabled={!user} size="icon" variant="outline">
           <ImageUp className="w-5 h-5" />
         </Button>
         <input
@@ -414,5 +412,3 @@ export function ChatInterface() {
     </div>
   );
 }
-
-    

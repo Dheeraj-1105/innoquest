@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -8,6 +9,7 @@ import {
   FirestoreError,
   QuerySnapshot,
   CollectionReference,
+  GetOptions,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -53,6 +55,7 @@ export interface InternalQuery extends Query<DocumentData> {
  */
 export function useCollection<T = any>(
     memoizedTargetRefOrQuery: ((CollectionReference<DocumentData> | Query<DocumentData>) & {__memo?: boolean})  | null | undefined,
+    options?: GetOptions,
 ): UseCollectionResult<T> {
   type ResultItemType = WithId<T>;
   type StateDataType = ResultItemType[] | null;
@@ -73,7 +76,7 @@ export function useCollection<T = any>(
 
     const unsubscribe = onSnapshot(
       memoizedTargetRefOrQuery,
-      { includeMetadataChanges: true }, // Important for offline
+      // { includeMetadataChanges: true }, // Important for offline
       (snapshot: QuerySnapshot<DocumentData>) => {
         const results: ResultItemType[] = [];
         snapshot.forEach(doc => {
@@ -81,7 +84,6 @@ export function useCollection<T = any>(
         });
         setData(results);
         setError(null);
-        // Only show loading if we are getting from cache and don't have data yet
         setIsLoading(snapshot.metadata.fromCache && results.length === 0);
       },
       (error: FirestoreError) => {
