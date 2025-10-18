@@ -14,13 +14,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getAiAdvice, getAiAdviceFromVoice, getAiDiagnosisForCrop } from "../actions";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, serverTimestamp, query, orderBy, getDocs, where } from 'firebase/firestore';
+import { collection, serverTimestamp, query, orderBy, getDocs } from 'firebase/firestore';
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import Link from "next/link";
 
@@ -68,9 +67,7 @@ export function ChatInterface() {
     [advisoriesColRef]
   );
 
-  const { data: chatHistory, isLoading: isHistoryLoading, error: historyError } = useCollection<Message>(advisoriesQuery, {
-    source: 'cache'
-  });
+  const { data: chatHistory, isLoading: isHistoryLoading, error: historyError } = useCollection<Message>(advisoriesQuery);
 
   useEffect(() => {
     if (chatHistory) {
@@ -147,8 +144,8 @@ export function ChatInterface() {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          addMessageToDb("user", "🎤 Voice message");
-          setIsLoading(true); // Show loading until the AI responds
+          // The Cloud Function will handle transcription and response
+          addMessageToDb("user", `Voice message sent at ${new Date().toLocaleTimeString()}`);
         };
       };
 
@@ -172,7 +169,6 @@ export function ChatInterface() {
     const userInput = input;
     setInput("");
     addMessageToDb("user", userInput);
-    setIsLoading(true); // Show loading until the AI responds
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,7 +184,6 @@ export function ChatInterface() {
     reader.onload = async () => {
       const base64Image = reader.result as string;
       addMessageToDb("user", { image: base64Image });
-      setIsLoading(true); // Show loading until AI responds
     };
     event.target.value = '';
   };
@@ -412,3 +407,5 @@ export function ChatInterface() {
     </div>
   );
 }
+
+    
