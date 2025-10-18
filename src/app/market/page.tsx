@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { ArrowUpRight, DatabaseZap } from "lucide-react";
 import Link from "next/link";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { useFirestore, useCollection, useMemoFirebase, useUser } from "@/firebase";
 import { collection, query, orderBy, limit } from "firebase/firestore";
 import { seedMarketData } from "../actions";
 import { useState } from "react";
@@ -34,6 +34,7 @@ export default function MarketPage() {
   const firestore = useFirestore();
   const { toast } = useToast();
   const [isSeeding, setIsSeeding] = useState(false);
+  const { user } = useUser();
 
   const marketDataRef = useMemoFirebase(
     () => (firestore ? collection(firestore, 'market_data') : null),
@@ -46,8 +47,16 @@ export default function MarketPage() {
   const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataQuery);
 
   const handleSeedData = async () => {
+    if (!user) {
+        toast({
+            variant: "destructive",
+            title: "Authentication Error",
+            description: "You must be logged in to seed data.",
+        });
+        return;
+    }
     setIsSeeding(true);
-    const result = await seedMarketData();
+    const result = await seedMarketData(user.uid);
     if (result.success) {
       toast({
         title: "Success",
@@ -80,9 +89,9 @@ export default function MarketPage() {
                         <CardTitle className="text-3xl font-headline">Latest Crop Prices (per Kg)</CardTitle>
                         <CardDescription>Prices from major agricultural markets (mandis), updated daily.</CardDescription>
                     </div>
-                    <Button onClick={handleSeedData} disabled={isSeeding} variant="outline">
+                    <Button onClick={handleSeedData} disabled={isSeeding || !user} variant="outline">
                       <DatabaseZap className="mr-2 h-4 w-4" />
-                      {isSeeding ? 'Seeding...' : 'Seed Data'}
+                      {isSeeding ? 'Seeding...' : 'Seed AI Suggestions'}
                     </Button>
                 </CardHeader>
                 <CardContent>
@@ -111,7 +120,7 @@ export default function MarketPage() {
                             ))
                         ) : (
                            <TableRow>
-                            <TableCell colSpan={3} className="text-center">No market data available. Click "Seed Data" to add some.</TableCell>
+                            <TableCell colSpan={3} className="text-center">No market data available. Click "Seed AI Suggestions" to add some.</TableCell>
                           </TableRow>
                         )}
                         </TableBody>

@@ -1,4 +1,6 @@
 'use server';
+import { config } from 'dotenv';
+config();
 
 import {
   chatAssistant,
@@ -21,6 +23,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
+import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
 
 // Helper to get farmer profile from Firestore
 async function getFarmerProfile(userId: string) {
@@ -128,8 +131,8 @@ export async function getAiAdvice(
     const aiInput: ChatAssistantInput = {
       query: queryText,
       language,
-      farmerProfile: farmerProfile as ChatAssistantInput['farmerProfile'],
-      weather: weatherData,
+      farmerProfile: farmerProfile ? (farmerProfile as ChatAssistantInput['farmerProfile']) : undefined,
+      weather: weatherData ? weatherData : undefined,
       market: marketData.length > 0 ? (marketData as ChatAssistantInput['market']) : undefined,
     };
 
@@ -137,7 +140,7 @@ export async function getAiAdvice(
     return response;
   } catch (error: any) {
     console.error('Error in getAiAdvice:', error);
-    throw new Error(`Failed to get AI advice: ${error.message}`);
+    throw new Error(`Failed to get AI advice: ${error.message || 'An unknown error occurred with the AI assistant.'}`);
   }
 }
 
@@ -192,29 +195,29 @@ export async function getDashboardWeather(userId: string | undefined) {
     return getWeatherData(location);
 }
 
-export async function seedMarketData() {
+export async function seedMarketData(userId: string) {
   try {
     const { firestore } = initializeFirebase();
     const batch = writeBatch(firestore);
     const marketRef = collection(firestore, 'market_data');
+    
+    const farmerProfile = await getFarmerProfile(userId);
+    const region = farmerProfile?.location?.split(',')[1]?.trim() || 'Maharashtra';
 
-    const sampleData = [
-      { cropName: "Tomato", region: "Pune", pricePerKg: 35, date: new Date().toISOString() },
-      { cropName: "Onion", region: "Nashik", pricePerKg: 28, date: new Date().toISOString() },
-      { cropName: "Cotton", region: "Nagpur", pricePerKg: 65, date: new Date().toISOString() },
-      { cropName: "Sugarcane", region: "Kolhapur", pricePerKg: 4, date: new Date().toISOString() },
-      { cropName: "Soybean", region: "Latur", pricePerKg: 48, date: new Date().toISOString() },
-      { cropName: "Rice", region: "Raigad", pricePerKg: 52, date: new Date().toISOString() },
-      { cropName: "Wheat", region: "Aurangabad", pricePerKg: 25, date: new Date().toISOString() }
-    ];
-
-    sampleData.forEach(item => {
+    // Get AI-suggested crops
+    const { crops } = await suggestCrops({ region });
+    
+    if (!crops || crops.length === 0) {
+      throw new Error("AI failed to suggest any crops.");
+    }
+    
+    crops.forEach(crop => {
       const docRef = doc(marketRef); // Auto-generate ID
-      batch.set(docRef, { ...item, id: docRef.id });
+      batch.set(docRef, { ...crop, id: docRef.id, region, date: new Date().toISOString() });
     });
 
     await batch.commit();
-    return { success: true, message: "Market data seeded successfully!" };
+    return { success: true, message: "AI-suggested market data seeded successfully!" };
   } catch (error: any) {
     console.error("Error seeding market data:", error);
     return { success: false, message: `Failed to seed data: ${error.message}` };
