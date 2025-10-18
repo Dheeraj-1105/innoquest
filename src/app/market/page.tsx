@@ -4,13 +4,8 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useToast } from "@/hooks/use-toast";
-import { ArrowUpRight, DatabaseZap } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import { useFirestore, useCollection, useMemoFirebase, useUser } from "@/firebase";
-import { collection, query, orderBy, limit } from "firebase/firestore";
-import { seedMarketData } from "../actions";
-import { useState } from "react";
 
 const schemes = [
     {
@@ -30,47 +25,17 @@ const schemes = [
     },
 ];
 
+const staticMarketData = [
+  { id: "1", cropName: "Tomato", region: "Maharashtra", pricePerKg: 45 },
+  { id: "2", cropName: "Onion", region: "Karnataka", pricePerKg: 30 },
+  { id: "3", cropName: "Potato", region: "Uttar Pradesh", pricePerKg: 25 },
+  { id: "4", cropName: "Cotton", region: "Gujarat", pricePerKg: 60 },
+  { id: "5", cropName: "Soybean", region: "Madhya Pradesh", pricePerKg: 52 },
+  { id: "6", cropName: "Rice", region: "Andhra Pradesh", pricePerKg: 48 },
+  { id: "7", cropName: "Wheat", region: "Punjab", pricePerKg: 28 },
+];
+
 export default function MarketPage() {
-  const firestore = useFirestore();
-  const { toast } = useToast();
-  const [isSeeding, setIsSeeding] = useState(false);
-  const { user } = useUser();
-
-  const marketDataRef = useMemoFirebase(
-    () => (firestore ? collection(firestore, 'market_data') : null),
-    [firestore]
-  );
-  const marketDataQuery = useMemoFirebase(
-    () => (marketDataRef ? query(marketDataRef, orderBy('date', 'desc'), limit(15)) : null),
-    [marketDataRef]
-  );
-  const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataQuery);
-
-  const handleSeedData = async () => {
-    if (!user) {
-        toast({
-            variant: "destructive",
-            title: "Authentication Error",
-            description: "You must be logged in to seed data.",
-        });
-        return;
-    }
-    setIsSeeding(true);
-    const result = await seedMarketData(user.uid);
-    if (result.success) {
-      toast({
-        title: "Success",
-        description: result.message,
-      });
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: result.message,
-      });
-    }
-    setIsSeeding(false);
-  };
 
   return (
     <div className="container mx-auto py-8 px-4 animate-fade-in">
@@ -84,15 +49,11 @@ export default function MarketPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2">
             <Card className="shadow-lg">
-                <CardHeader className="flex flex-row justify-between items-center">
+                <CardHeader>
                     <div>
                         <CardTitle className="text-3xl font-headline">Latest Crop Prices (per Kg)</CardTitle>
-                        <CardDescription>Prices from major agricultural markets (mandis), updated daily.</CardDescription>
+                        <CardDescription>Prices from major agricultural markets (mandis).</CardDescription>
                     </div>
-                    <Button onClick={handleSeedData} disabled={isSeeding || !user} variant="outline">
-                      <DatabaseZap className="mr-2 h-4 w-4" />
-                      {isSeeding ? 'Seeding...' : 'Seed AI Suggestions'}
-                    </Button>
                 </CardHeader>
                 <CardContent>
                     <Table>
@@ -104,25 +65,15 @@ export default function MarketPage() {
                         </TableRow>
                         </TableHeader>
                         <TableBody>
-                        {isMarketLoading ? (
-                          <TableRow>
-                            <TableCell colSpan={3} className="text-center">Loading market data...</TableCell>
+                        {staticMarketData.map((item) => (
+                          <TableRow key={item.id}>
+                            <TableCell className="font-medium">{item.cropName}</TableCell>
+                            <TableCell>{item.region}</TableCell>
+                            <TableCell className="text-right font-semibold">
+                              ₹{item.pricePerKg}
+                            </TableCell>
                           </TableRow>
-                        ) : marketData && marketData.length > 0 ? (
-                            marketData.map((item) => (
-                              <TableRow key={item.id}>
-                                <TableCell className="font-medium">{item.cropName}</TableCell>
-                                <TableCell>{item.region}</TableCell>
-                                <TableCell className="text-right font-semibold">
-                                  ₹{item.pricePerKg}
-                                </TableCell>
-                              </TableRow>
-                            ))
-                        ) : (
-                           <TableRow>
-                            <TableCell colSpan={3} className="text-center">No market data available. Click "Seed AI Suggestions" to add some.</TableCell>
-                          </TableRow>
-                        )}
+                        ))}
                         </TableBody>
                     </Table>
                 </CardContent>
