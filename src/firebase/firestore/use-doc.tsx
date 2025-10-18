@@ -7,6 +7,7 @@ import {
   DocumentData,
   FirestoreError,
   DocumentSnapshot,
+  getDocFromCache,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -44,7 +45,7 @@ export function useDoc<T = any>(
   type StateDataType = WithId<T> | null;
 
   const [data, setData] = useState<StateDataType>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<FirestoreError | Error | null>(null);
 
   useEffect(() => {
@@ -54,13 +55,20 @@ export function useDoc<T = any>(
       setError(null);
       return;
     }
-
+    
     setIsLoading(true);
-    setError(null);
-    // Optional: setData(null); // Clear previous data instantly
+
+    // Try to get data from cache first for a faster initial load
+    getDocFromCache(memoizedDocRef).then(snapshot => {
+      if (snapshot.exists()) {
+        setData({ ...(snapshot.data() as T), id: snapshot.id });
+        setIsLoading(false); // We have cached data, so we're not "loading"
+      }
+    });
 
     const unsubscribe = onSnapshot(
       memoizedDocRef,
+      { includeMetadataChanges: true }, // Important for offline!
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
           setData({ ...(snapshot.data() as T), id: snapshot.id });
@@ -68,21 +76,25 @@ export function useDoc<T = any>(
           // Document does not exist
           setData(null);
         }
-        setError(null); // Clear any previous error on successful snapshot (even if doc doesn't exist)
-        setIsLoading(false);
+        setError(null); // Clear any previous error
+        // Only show loading if we are getting from cache and don't have data yet
+        setIsLoading(snapshot.metadata.fromCache && !snapshot.exists());
       },
       (error: FirestoreError) => {
         const contextualError = new FirestorePermissionError({
           operation: 'get',
           path: memoizedDocRef.path,
         })
+        
+        // Don't set a permissions error if we are offline, as it's expected.
+        if (error.code !== 'unavailable') {
+            setError(contextualError);
+            // trigger global error propagation
+            errorEmitter.emit('permission-error', contextualError);
+        }
 
-        setError(contextualError)
         setData(null)
         setIsLoading(false)
-
-        // trigger global error propagation
-        errorEmitter.emit('permission-error', contextualError);
       }
     );
 
