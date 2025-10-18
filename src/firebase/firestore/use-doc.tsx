@@ -7,7 +7,6 @@ import {
   DocumentData,
   FirestoreError,
   DocumentSnapshot,
-  getDocFromCache,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -57,14 +56,6 @@ export function useDoc<T = any>(
     }
     
     setIsLoading(true);
-
-    // Try to get data from cache first for a faster initial load
-    getDocFromCache(memoizedDocRef).then(snapshot => {
-      if (snapshot.exists()) {
-        setData({ ...(snapshot.data() as T), id: snapshot.id });
-        setIsLoading(false); // We have cached data, so we're not "loading"
-      }
-    });
 
     const unsubscribe = onSnapshot(
       memoizedDocRef,

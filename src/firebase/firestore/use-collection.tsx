@@ -8,7 +8,6 @@ import {
   FirestoreError,
   QuerySnapshot,
   CollectionReference,
-  getDocsFromCache,
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
@@ -72,18 +71,6 @@ export function useCollection<T = any>(
 
     setIsLoading(true);
 
-    // Try to get data from cache first for a faster initial load
-    getDocsFromCache(memoizedTargetRefOrQuery).then(snapshot => {
-      if (!snapshot.empty) {
-        const results: ResultItemType[] = [];
-        snapshot.forEach(doc => {
-          results.push({ ...(doc.data() as T), id: doc.id });
-        });
-        setData(results);
-        setIsLoading(false); // We have cached data, so we're not "loading" from the user's perspective
-      }
-    });
-
     const unsubscribe = onSnapshot(
       memoizedTargetRefOrQuery,
       { includeMetadataChanges: true }, // Important for offline
@@ -94,6 +81,7 @@ export function useCollection<T = any>(
         });
         setData(results);
         setError(null);
+        // Only show loading if we are getting from cache and don't have data yet
         setIsLoading(snapshot.metadata.fromCache && results.length === 0);
       },
       (error: FirestoreError) => {
