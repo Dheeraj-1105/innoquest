@@ -1,3 +1,4 @@
+
 'use server';
 import { config } from 'dotenv';
 config();
@@ -14,7 +15,7 @@ import {
 } from '@/ai/flows/diagnose-crop-disease-flow';
 import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
 import { initializeServerApp } from '@/firebase/server-init';
-
+import { getDashboardInsights } from '@/ai/flows/get-dashboard-insights-flow';
 
 // Helper to get farmer profile from Firestore using Admin SDK
 async function getFarmerProfile(userId: string) {
@@ -43,7 +44,7 @@ async function getWeatherData(location: string = 'pune') {
       humidity: 75,
       rainfall: 0.5,
       location: 'Pune (Mock)',
-      weatherAlerts: ['Chance of light rain']
+      weatherCondition: 'Haze'
     };
   }
   const url = `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}&units=metric`;
@@ -52,13 +53,7 @@ async function getWeatherData(location: string = 'pune') {
     const response = await fetch(url, { cache: 'no-store' }); 
     if (!response.ok) {
       console.error(`Error fetching weather data for ${location}: ${response.statusText}`);
-      return {
-        temperature: 25,
-        humidity: 60,
-        rainfall: 0,
-        location: `${location} (data unavailable)`,
-        weatherAlerts: ['Could not fetch live data.']
-      };
+      return null;
     }
     const data = await response.json();
     return {
@@ -66,17 +61,11 @@ async function getWeatherData(location: string = 'pune') {
       humidity: data.main.humidity,
       rainfall: data.rain ? data.rain['1h'] || 0 : 0, 
       location: data.name,
-      weatherAlerts: data.weather.map((w: any) => w.description)
+      weatherCondition: data.weather[0]?.main || 'Clear'
     };
   } catch (error) {
     console.error('Error fetching weather data:', error);
-     return {
-        temperature: 25,
-        humidity: 60,
-        rainfall: 0,
-        location: `${location} (data unavailable)`,
-        weatherAlerts: ['Could not fetch live data.']
-      };
+     return null;
   }
 }
 
@@ -189,10 +178,30 @@ export async function getAiDiagnosisForCrop(
   }
 }
 
-export async function getDashboardWeather(userId: string) {
+export async function getDashboardData(userId: string) {
     const farmerProfile = await getFarmerProfile(userId);
     const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
-    return getWeatherData(location);
+    
+    const weatherData = await getWeatherData(location);
+
+    if (!weatherData) {
+      return { weatherData: null, insights: null };
+    }
+
+    const marketData = await getMarketData();
+
+    const insights = await getDashboardInsights({
+      location: weatherData.location,
+      weather: {
+        temperature: weatherData.temperature,
+        humidity: weatherData.humidity,
+        rainfall: weatherData.rainfall,
+        weatherCondition: weatherData.weatherCondition,
+      },
+      crops: farmerProfile?.cropsGrown || []
+    });
+
+    return { weatherData, insights, marketData };
 }
 
 export async function seedMarketData(userId: string) {
@@ -203,20 +212,18 @@ export async function seedMarketData(userId: string) {
     const farmerProfile = await getFarmerProfile(userId);
     const region = farmerProfile?.location?.split(',')[1]?.trim() || 'Maharashtra';
     
-    // First, call the AI to get suggestions.
     const { crops } = await suggestCrops({ region });
     
     if (!crops || crops.length === 0) {
       throw new Error("AI failed to suggest any crops.");
     }
 
-    // Now, get a separate Firestore instance to write the data.
     const { firestore } = await initializeServerApp();
     const batch = firestore.batch();
     const marketRef = firestore.collection('market_data');
     
     crops.forEach(crop => {
-      const docRef = marketRef.doc(); // Admin SDK automatically generates an ID
+      const docRef = marketRef.doc();
       batch.set(docRef, { ...crop, id: docRef.id, region, date: new Date().toISOString() });
     });
 
