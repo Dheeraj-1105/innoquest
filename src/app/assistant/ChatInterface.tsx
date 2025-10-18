@@ -209,20 +209,23 @@ export function ChatInterface() {
   };
   
   const renderAdvice = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urlRegex = /(https?:\/\/[^\s]+(\.[\w/]+)*)/g;
     const parts = text.split(urlRegex);
 
     return parts.map((part, index) => {
-      if (part.match(urlRegex)) {
+      if (part && part.match(urlRegex)) {
         return (
-          <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1" key={index}>
+          <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1 inline-block align-baseline" key={index}>
             <Link href={part} target="_blank" rel="noopener noreferrer">
-              Apply Here <ArrowUpRight className="w-4 h-4 ml-1" />
+              Apply Here <ArrowUpRight className="w-4 h-4 ml-1 inline-block" />
             </Link>
           </Button>
         );
       }
-      return <span key={index}>{part}</span>;
+      if(part) {
+        return <span key={index}>{part}</span>;
+      }
+      return null;
     });
   }
 
