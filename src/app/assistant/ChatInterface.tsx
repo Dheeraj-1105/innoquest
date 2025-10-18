@@ -77,6 +77,8 @@ export function ChatInterface() {
         timestamp: msg.timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
       }));
       setMessages(formattedHistory);
+    } else {
+      setMessages([]);
     }
   }, [chatHistory]);
 
@@ -209,7 +211,7 @@ export function ChatInterface() {
   };
   
   const renderAdvice = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s]+(\.[\w/]+)*)/g;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
 
     return parts.map((part, index) => {
@@ -412,3 +414,5 @@ export function ChatInterface() {
     </div>
   );
 }
+
+    
