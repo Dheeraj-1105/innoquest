@@ -22,14 +22,14 @@ import {
   doc,
   writeBatch,
 } from 'firebase/firestore';
-import { initializeFirebase } from '@/firebase';
+import { initializeServerApp } from '@/firebase/server-init';
 import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
 
 // Helper to get farmer profile from Firestore
 async function getFarmerProfile(userId: string) {
   if (!userId) return null;
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeServerApp();
     const farmerDocRef = doc(firestore, 'farmers', userId);
     const farmerDoc = await getDoc(farmerDocRef);
     if (farmerDoc.exists()) {
@@ -94,7 +94,7 @@ async function getWeatherData(location: string = 'pune') {
 // Helper to get latest market data from Firestore
 async function getMarketData() {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeServerApp();
     const marketCollectionRef = collection(firestore, 'market_data');
     const marketQuery = query(marketCollectionRef, orderBy('date', 'desc'), limit(5)); // Fetch a few recent prices
     const marketSnapshot = await getDocs(marketQuery);
@@ -197,7 +197,7 @@ export async function getDashboardWeather(userId: string | undefined) {
 
 export async function seedMarketData(userId: string) {
   try {
-    const { firestore } = initializeFirebase();
+    const { firestore } = await initializeServerApp();
     const batch = writeBatch(firestore);
     const marketRef = collection(firestore, 'market_data');
     
