@@ -194,7 +194,7 @@ export async function getDashboardWeather(userId: string | undefined) {
 export async function seedMarketData(userId: string) {
   try {
     // This is the correct Admin SDK instance
-    const firestore = getFirestore(); 
+    const { firestore } = await initializeServerApp(); 
     const batch = firestore.batch();
     const marketRef = firestore.collection('market_data');
     
