@@ -12,27 +12,20 @@ import {
   diagnoseCropDisease,
   DiagnoseCropDiseaseOutput,
 } from '@/ai/flows/diagnose-crop-disease-flow';
-import {
-  getDoc,
-  collection,
-  getDocs,
-  query,
-  limit,
-  orderBy,
-  doc,
-  writeBatch,
-} from 'firebase/firestore';
 import { initializeServerApp } from '@/firebase/server-init';
 import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
 
-// Helper to get farmer profile from Firestore
+// IMPORTANT: Use getFirestore from 'firebase-admin/firestore'
+import { getFirestore } from 'firebase-admin/firestore';
+
+// Helper to get farmer profile from Firestore using Admin SDK
 async function getFarmerProfile(userId: string) {
   if (!userId) return null;
   try {
     const { firestore } = await initializeServerApp();
-    const farmerDocRef = doc(firestore, 'farmers', userId);
-    const farmerDoc = await getDoc(farmerDocRef);
-    if (farmerDoc.exists()) {
+    const farmerDocRef = firestore.collection('farmers').doc(userId);
+    const farmerDoc = await farmerDocRef.get();
+    if (farmerDoc.exists) {
       return farmerDoc.data();
     }
     return null;
@@ -47,7 +40,6 @@ async function getWeatherData(location: string = 'pune') {
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey) {
     console.warn("OpenWeather API key is not set. Using mock weather data.");
-    // Fallback to mock data if API key is missing
     return {
       temperature: 28,
       humidity: 75,
@@ -62,7 +54,6 @@ async function getWeatherData(location: string = 'pune') {
     const response = await fetch(url, { cache: 'no-store' }); 
     if (!response.ok) {
       console.error(`Error fetching weather data for ${location}: ${response.statusText}`);
-      // Fallback to mock data on API error
       return {
         temperature: 25,
         humidity: 60,
@@ -91,21 +82,21 @@ async function getWeatherData(location: string = 'pune') {
   }
 }
 
-// Helper to get latest market data from Firestore
+// Helper to get latest market data from Firestore using Admin SDK
 async function getMarketData() {
   try {
     const { firestore } = await initializeServerApp();
-    const marketCollectionRef = collection(firestore, 'market_data');
-    const marketQuery = query(marketCollectionRef, orderBy('date', 'desc'), limit(5)); // Fetch a few recent prices
-    const marketSnapshot = await getDocs(marketQuery);
+    const marketCollectionRef = firestore.collection('market_data');
+    const marketQuery = marketCollectionRef.orderBy('date', 'desc').limit(5);
+    const marketSnapshot = await marketQuery.get();
     if (!marketSnapshot.empty) {
       return marketSnapshot.docs.map(doc => doc.data());
     }
     console.log("No market data found in Firestore.");
-    return []; // Return empty array if no data
+    return [];
   } catch (error) {
     console.error('Error fetching market data:', error);
-    return []; // Return empty array on error
+    return [];
   }
 }
 
@@ -122,7 +113,6 @@ export async function getAiAdvice(
     const farmerProfile = await getFarmerProfile(userId);
     const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
     
-    // Fetch data in parallel for efficiency
     const [weatherData, marketData] = await Promise.all([
       getWeatherData(location),
       getMarketData()
@@ -135,6 +125,13 @@ export async function getAiAdvice(
       weather: weatherData ? weatherData : undefined,
       market: marketData.length > 0 ? (marketData as ChatAssistantInput['market']) : undefined,
     };
+    
+    if (!aiInput.weather) {
+      aiInput.weather = { temperature: 28, humidity: 75, rainfall: 0.5 };
+    }
+    if (!aiInput.market) {
+       aiInput.market = [{ cropName: 'Tomato', pricePerKg: 45 }];
+    }
 
     const response = await chatAssistant(aiInput);
     return response;
@@ -187,7 +184,6 @@ export async function getAiDiagnosisForCrop(
 
 export async function getDashboardWeather(userId: string | undefined) {
     if (!userId) {
-        // For logged-out users, provide a default location
         return getWeatherData('pune');
     }
     const farmerProfile = await getFarmerProfile(userId);
@@ -197,14 +193,14 @@ export async function getDashboardWeather(userId: string | undefined) {
 
 export async function seedMarketData(userId: string) {
   try {
-    const { firestore } = await initializeServerApp();
-    const batch = writeBatch(firestore);
-    const marketRef = collection(firestore, 'market_data');
+    // This is the correct Admin SDK instance
+    const firestore = getFirestore(); 
+    const batch = firestore.batch();
+    const marketRef = firestore.collection('market_data');
     
     const farmerProfile = await getFarmerProfile(userId);
     const region = farmerProfile?.location?.split(',')[1]?.trim() || 'Maharashtra';
 
-    // Get AI-suggested crops
     const { crops } = await suggestCrops({ region });
     
     if (!crops || crops.length === 0) {
@@ -212,7 +208,8 @@ export async function seedMarketData(userId: string) {
     }
     
     crops.forEach(crop => {
-      const docRef = doc(marketRef); // Auto-generate ID
+      // Use the collection reference to create a new document reference with an auto-generated ID
+      const docRef = marketRef.doc(); 
       batch.set(docRef, { ...crop, id: docRef.id, region, date: new Date().toISOString() });
     });
 
