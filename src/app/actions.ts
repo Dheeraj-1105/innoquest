@@ -15,14 +15,40 @@ import {
 import { initializeServerApp } from '@/firebase/server-init';
 import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
 
-// IMPORTANT: Use getFirestore from 'firebase-admin/firestore'
 import { getFirestore } from 'firebase-admin/firestore';
+import { getApps, initializeApp, cert } from 'firebase-admin/app';
+import { firebaseConfig } from '@/firebase/config';
+
+
+async function getDb() {
+    const apps = getApps();
+    const appName = 'server-actions';
+    if (apps.some(app => app.name === appName)) {
+        return getFirestore(apps.find(app => app.name === appName));
+    }
+    try {
+        // When deployed to App Hosting, the GOOGLE_APPLICATION_CREDENTIALS
+        // environment variable is automatically set.
+        const app = initializeApp(undefined, appName);
+        return getFirestore(app);
+    } catch (e) {
+         const serviceAccount = JSON.parse(
+          process.env.FIREBASE_SERVICE_ACCOUNT as string
+        );
+        const app = initializeApp({
+          credential: cert(serviceAccount),
+          projectId: firebaseConfig.projectId,
+        }, appName);
+        return getFirestore(app);
+    }
+}
+
 
 // Helper to get farmer profile from Firestore using Admin SDK
 async function getFarmerProfile(userId: string) {
   if (!userId) return null;
   try {
-    const { firestore } = await initializeServerApp();
+    const firestore = await getDb();
     const farmerDocRef = firestore.collection('farmers').doc(userId);
     const farmerDoc = await farmerDocRef.get();
     if (farmerDoc.exists) {
@@ -85,7 +111,7 @@ async function getWeatherData(location: string = 'pune') {
 // Helper to get latest market data from Firestore using Admin SDK
 async function getMarketData() {
   try {
-    const { firestore } = await initializeServerApp();
+    const firestore = await getDb();
     const marketCollectionRef = firestore.collection('market_data');
     const marketQuery = marketCollectionRef.orderBy('date', 'desc').limit(5);
     const marketSnapshot = await marketQuery.get();
@@ -121,15 +147,24 @@ export async function getAiAdvice(
     const aiInput: ChatAssistantInput = {
       query: queryText,
       language,
-      farmerProfile: farmerProfile ? (farmerProfile as ChatAssistantInput['farmerProfile']) : undefined,
-      weather: weatherData ? weatherData : undefined,
-      market: marketData.length > 0 ? (marketData as ChatAssistantInput['market']) : undefined,
+      farmerProfile: farmerProfile ? {
+        name: farmerProfile.name,
+        location: farmerProfile.location,
+        cropsGrown: farmerProfile.cropsGrown,
+        preferredLanguage: farmerProfile.preferredLanguage,
+      } : undefined,
+      weather: weatherData ? {
+        temperature: weatherData.temperature,
+        humidity: weatherData.humidity,
+        rainfall: weatherData.rainfall,
+      } : undefined,
+      market: marketData.length > 0 ? marketData.map(md => ({ cropName: md.cropName, pricePerKg: md.pricePerKg })) : undefined,
     };
     
     if (!aiInput.weather) {
       aiInput.weather = { temperature: 28, humidity: 75, rainfall: 0.5 };
     }
-    if (!aiInput.market) {
+    if (!aiInput.market || aiInput.market.length === 0) {
        aiInput.market = [{ cropName: 'Tomato', pricePerKg: 45 }];
     }
 
@@ -193,8 +228,7 @@ export async function getDashboardWeather(userId: string | undefined) {
 
 export async function seedMarketData(userId: string) {
   try {
-    // This is the correct Admin SDK instance
-    const { firestore } = await initializeServerApp(); 
+    const firestore = await getDb(); 
     const batch = firestore.batch();
     const marketRef = firestore.collection('market_data');
     
@@ -208,7 +242,6 @@ export async function seedMarketData(userId: string) {
     }
     
     crops.forEach(crop => {
-      // Use the collection reference to create a new document reference with an auto-generated ID
       const docRef = marketRef.doc(); 
       batch.set(docRef, { ...crop, id: docRef.id, region, date: new Date().toISOString() });
     });
