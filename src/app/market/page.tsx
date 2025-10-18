@@ -4,6 +4,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { governmentSchemes } from "@/lib/schemes";
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
@@ -15,24 +16,6 @@ const marketData = [
   { id: '5', cropName: 'Wheat', region: 'Punjab', reason: 'Government procurement season.', pricePerKg: 22 + Math.floor(Math.random() * 5) - 2 },
   { id: '6', cropName: 'Onion', region: 'Maharashtra', reason: 'Seasonal supply shortage.', pricePerKg: 30 + Math.floor(Math.random() * 12) - 6 },
   { id: '7', cropName: 'Potato', region: 'West Bengal', reason: 'Steady consumption rates.', pricePerKg: 20 + Math.floor(Math.random() * 6) - 3 },
-];
-
-const schemes = [
-    {
-        title: "PM-KISAN Scheme",
-        description: "An income support scheme for all landholding farmer families.",
-        link: "#"
-    },
-    {
-        title: "Pradhan Mantri Fasal Bima Yojana",
-        description: "Crop insurance scheme to provide financial support to farmers suffering crop loss/damage.",
-        link: "#"
-    },
-    {
-        title: "Kisan Credit Card (KCC)",
-        description: "Provides farmers with timely access to credit for their agricultural needs.",
-        link: "#"
-    },
 ];
 
 export default function MarketPage() {
@@ -88,7 +71,7 @@ export default function MarketPage() {
         <div>
             <h2 className="text-3xl font-headline font-bold mb-4">Government Schemes</h2>
             <div className="space-y-4">
-                {schemes.map((scheme, index) => (
+                {governmentSchemes.map((scheme, index) => (
                     <Card key={index} className="shadow-lg">
                         <CardHeader>
                             <CardTitle className="text-xl font-headline">{scheme.title}</CardTitle>
@@ -98,10 +81,10 @@ export default function MarketPage() {
                         </CardContent>
                         <CardFooter className="flex justify-between">
                             <Button variant="outline" asChild>
-                                <Link href={scheme.link}>Read More</Link>
+                                <Link href={scheme.link} target="_blank" rel="noopener noreferrer">Read More</Link>
                             </Button>
                             <Button asChild>
-                                <Link href={scheme.link}>Apply Now <ArrowUpRight className="w-4 h-4 ml-2"/></Link>
+                                <Link href={scheme.link} target="_blank" rel="noopener noreferrer">Apply Now <ArrowUpRight className="w-4 h-4 ml-2"/></Link>
                             </Button>
                         </CardFooter>
                     </Card>
