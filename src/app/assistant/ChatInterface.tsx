@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp } from "lucide-react";
+import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp, ArrowUpRight } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import Link from "next/link";
 
 type MessageContent = 
   | string 
@@ -206,6 +207,24 @@ export function ChatInterface() {
     };
     event.target.value = '';
   };
+  
+  const renderAdvice = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+
+    return parts.map((part, index) => {
+      if (part.match(urlRegex)) {
+        return (
+          <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1" key={index}>
+            <Link href={part} target="_blank" rel="noopener noreferrer">
+              Apply Here <ArrowUpRight className="w-4 h-4 ml-1" />
+            </Link>
+          </Button>
+        );
+      }
+      return <span key={index}>{part}</span>;
+    });
+  }
 
   const renderMessageContent = (content: MessageContent) => {
     if (typeof content === "string") {
@@ -217,7 +236,7 @@ export function ChatInterface() {
     if (typeof content === 'object' && content && "advice" in content) {
       return (
           <div className="space-y-4">
-              <p>{content.advice}</p>
+              <div className="whitespace-pre-wrap">{renderAdvice(content.advice)}</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {content.weather && (
                       <Card className="bg-background/50">
@@ -271,7 +290,7 @@ export function ChatInterface() {
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
            <Bot className="w-16 h-16 mb-4" />
            <h3 className="text-lg font-semibold">Welcome to AgriAdvisor AI</h3>
-           <p className="max-w-md">{user ? "You can ask me about crop diseases, weather, market prices, and more." : "Please log in to start a conversation."}</p>
+           <p className="max-w-md">{user ? "You can ask me about crop diseases, weather, market prices, and government schemes." : "Please log in to start a conversation."}</p>
        </div>
       )
     }
