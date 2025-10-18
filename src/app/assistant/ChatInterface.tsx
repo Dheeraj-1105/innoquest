@@ -23,12 +23,14 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { useUser } from "@/firebase";
+import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import Link from "next/link";
+import { collection, addDoc, serverTimestamp, query, orderBy, Timestamp } from "firebase/firestore";
+import { setDocumentNonBlocking, addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 
 
-type MessageContent = 
-  | string 
+type MessageContent =
+  | string
   | { advice: string; weather?: string; market?: string; language?: string; }
   | { disease: string; recommendation: string }
   | { image: string };
@@ -37,6 +39,7 @@ type Message = {
   id: string;
   role: "user" | "assistant";
   content: MessageContent;
+  timestamp?: Timestamp;
 };
 
 const languages = [
@@ -47,7 +50,6 @@ const languages = [
 ];
 
 export function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [language, setLanguage] = useState("en");
   const [isRecording, setIsRecording] = useState(false);
@@ -58,6 +60,19 @@ export function ChatInterface() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useUser();
+  const firestore = useFirestore();
+
+  const advisoriesRef = useMemoFirebase(
+    () => (firestore && user ? collection(firestore, `farmers/${user.uid}/advisories`) : null),
+    [firestore, user]
+  );
+
+  const advisoriesQuery = useMemoFirebase(
+    () => (advisoriesRef ? query(advisoriesRef, orderBy("timestamp", "asc")) : null),
+    [advisoriesRef]
+  );
+  
+  const { data: messages, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery);
 
   useEffect(() => {
     if(scrollAreaRef.current){
@@ -68,10 +83,25 @@ export function ChatInterface() {
     }
   }, [messages, isLoading]);
 
-  const addMessage = (role: 'user' | 'assistant', content: MessageContent) => {
-    setMessages((prev) => [...prev, { id: Date.now().toString(), role, content }]);
+  const addMessageToDb = async (role: 'user' | 'assistant', content: MessageContent) => {
+    if (!advisoriesRef) return;
+    try {
+        await addDoc(advisoriesRef, {
+            role,
+            content,
+            timestamp: serverTimestamp(),
+            language,
+        });
+    } catch (error) {
+        console.error("Error adding message to Firestore:", error);
+        toast({
+            variant: "destructive",
+            title: "Database Error",
+            description: "Could not save message."
+        });
+    }
   };
-
+  
   const handleStartRecording = async () => {
     if (!user) {
         toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to use the voice assistant.' });
@@ -98,10 +128,10 @@ export function ChatInterface() {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          addMessage("user", "🎤 Voice message");
+          await addMessageToDb("user", "🎤 Voice message");
           try {
             const response = await getAiAdviceFromVoice(base64Audio, language, user!.uid);
-            addMessage("assistant", response);
+            await addMessageToDb("assistant", response);
           } catch (error: any) {
             toast({
               variant: "destructive",
@@ -134,13 +164,13 @@ export function ChatInterface() {
     }
 
     const userInput = input;
-    addMessage("user", userInput);
     setInput("");
+    await addMessageToDb("user", userInput);
     setIsLoading(true);
 
     try {
       const response = await getAiAdvice(userInput, language, user.uid);
-      addMessage("assistant", response);
+      await addMessageToDb("assistant", response);
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -164,11 +194,11 @@ export function ChatInterface() {
     reader.readAsDataURL(file);
     reader.onload = async () => {
       const base64Image = reader.result as string;
-      addMessage("user", { image: base64Image });
+      await addMessageToDb("user", { image: base64Image });
       setIsLoading(true);
       try {
         const response = await getAiDiagnosisForCrop(base64Image, language);
-        addMessage("assistant", response);
+        await addMessageToDb("assistant", response);
       } catch (error: any) {
         toast({
           variant: "destructive",
@@ -181,9 +211,9 @@ export function ChatInterface() {
     };
     event.target.value = '';
   };
-  
+
   const renderAdvice = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s"'<>()]+)/g;
+    const urlRegex = /(https?:\/\/[^\s"'<>()]+(?:\.[^\s"'<>()]+)*)/g;
     const parts = text.split(urlRegex);
 
     return parts.map((part, index) => {
@@ -197,7 +227,8 @@ export function ChatInterface() {
         );
       }
       if(part) {
-        return <span key={index}>{part}</span>;
+        // Replace escaped newlines with actual newlines
+        return <span key={index}>{part.replace(/\\n/g, '\n')}</span>;
       }
       return null;
     });
@@ -254,9 +285,17 @@ export function ChatInterface() {
 
     return null;
   };
-  
+
   const DisplayMessages = () => {
-    if (messages.length === 0 && !isLoading) {
+    if (isHistoryLoading) {
+      return (
+         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
+           <Bot className="w-16 h-16 mb-4 animate-pulse" />
+           <h3 className="text-lg font-semibold">Loading Chat History...</h3>
+         </div>
+      );
+    }
+    if (!messages || messages.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
            <Bot className="w-16 h-16 mb-4" />
@@ -353,19 +392,19 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={!user || isLoading}
+          disabled={!user || isLoading || isHistoryLoading}
         />
         <Button
           onClick={handleSendMessage}
-          disabled={!input.trim() || !user || isLoading}
+          disabled={!input.trim() || !user || isLoading || isHistoryLoading}
           size="icon"
         >
           <Send className="w-5 h-5" />
         </Button>
-        <Button onClick={handleStartRecording} disabled={!user || isLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
+        <Button onClick={handleStartRecording} disabled={!user || isLoading || isHistoryLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
           <Mic className="w-5 h-5" />
         </Button>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={!user || isLoading} size="icon" variant="outline">
+        <Button onClick={() => fileInputRef.current?.click()} disabled={!user || isLoading || isHistoryLoading} size="icon" variant="outline">
           <ImageUp className="w-5 h-5" />
         </Button>
         <input
