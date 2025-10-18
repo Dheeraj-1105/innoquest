@@ -13,44 +13,14 @@ import {
   DiagnoseCropDiseaseOutput,
 } from '@/ai/flows/diagnose-crop-disease-flow';
 import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
-
-import { getFirestore } from 'firebase-admin/firestore';
-import { getApps, initializeApp, cert, getApp } from 'firebase-admin/app';
-import { firebaseConfig } from '@/firebase/config';
-
-
-async function getDb() {
-    const apps = getApps();
-    const appName = 'server-actions-db'; // Use a unique name for this specific admin app
-    if (apps.some(app => app.name === appName)) {
-        return getFirestore(getApp(appName));
-    }
-    
-    // In production (App Hosting), GOOGLE_APPLICATION_CREDENTIALS is set automatically.
-    // In local dev, we use the service account from the environment variable.
-    try {
-        const serviceAccount = JSON.parse(
-          process.env.FIREBASE_SERVICE_ACCOUNT as string
-        );
-        const app = initializeApp({
-          credential: cert(serviceAccount),
-          projectId: firebaseConfig.projectId,
-        }, appName); // Initialize with the unique name
-        return getFirestore(app);
-    } catch (e) {
-         // Fallback for cases where service account might not be needed or is set differently.
-         // This primarily ensures it works in deployed App Hosting environments.
-        const app = initializeApp(undefined, appName);
-        return getFirestore(app);
-    }
-}
+import { initializeServerApp } from '@/firebase/server-init';
 
 
 // Helper to get farmer profile from Firestore using Admin SDK
 async function getFarmerProfile(userId: string) {
   if (!userId) return null;
   try {
-    const firestore = await getDb();
+    const { firestore } = await initializeServerApp();
     const farmerDocRef = firestore.collection('farmers').doc(userId);
     const farmerDoc = await farmerDocRef.get();
     if (farmerDoc.exists) {
@@ -113,7 +83,7 @@ async function getWeatherData(location: string = 'pune') {
 // Helper to get latest market data from Firestore using Admin SDK
 async function getMarketData() {
   try {
-    const firestore = await getDb();
+    const { firestore } = await initializeServerApp();
     const marketCollectionRef = firestore.collection('market_data');
     const marketQuery = marketCollectionRef.orderBy('date', 'desc').limit(5);
     const marketSnapshot = await marketQuery.get();
@@ -219,20 +189,21 @@ export async function getAiDiagnosisForCrop(
   }
 }
 
-export async function getDashboardWeather(userId: string | undefined) {
-    if (!userId) {
-        return getWeatherData('pune');
-    }
+export async function getDashboardWeather(userId: string) {
     const farmerProfile = await getFarmerProfile(userId);
     const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
     return getWeatherData(location);
 }
 
 export async function seedMarketData(userId: string) {
+  if (!userId) {
+    return { success: false, message: "User not found." };
+  }
   try {
-    // First, call the AI to get suggestions. This uses Genkit's authentication.
     const farmerProfile = await getFarmerProfile(userId);
     const region = farmerProfile?.location?.split(',')[1]?.trim() || 'Maharashtra';
+    
+    // First, call the AI to get suggestions.
     const { crops } = await suggestCrops({ region });
     
     if (!crops || crops.length === 0) {
@@ -240,7 +211,7 @@ export async function seedMarketData(userId: string) {
     }
 
     // Now, get a separate Firestore instance to write the data.
-    const firestore = await getDb(); 
+    const { firestore } = await initializeServerApp();
     const batch = firestore.batch();
     const marketRef = firestore.collection('market_data');
     

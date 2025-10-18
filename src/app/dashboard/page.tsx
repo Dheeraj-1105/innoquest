@@ -3,18 +3,13 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Wheat, TestTube2, Bug, CloudSun, Wind, Droplet, Sunrise, Sunset, TrendingUp } from "lucide-react";
+import { Wheat, TestTube2, Bug, CloudSun, Wind, Droplet, Sunrise, Sunset, TrendingUp, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, orderBy, limit } from "firebase/firestore";
-import { getDashboardWeather } from "../actions";
+import { getDashboardWeather, seedMarketData } from "../actions";
 import { useEffect, useState } from "react";
-
-const cropSuggestions = [
-  { name: 'Tomatoes', reason: 'High demand in current market' },
-  { name: 'Soybean', reason: 'Suitable for current soil moisture levels' },
-  { name: 'Maize', reason: 'Favorable weather forecast for next 3 months' },
-];
+import { useToast } from "@/hooks/use-toast";
 
 const pestAlerts = [
     { name: 'Aphids', crop: 'Cotton', severity: 'High' },
@@ -29,29 +24,56 @@ type WeatherData = {
   weatherAlerts: string[];
 }
 
+type SuggestedCrop = {
+    cropName: string;
+    pricePerKg: number;
+    reason: string;
+};
+
 export default function DashboardPage() {
   const { user } = useUser();
   const firestore = useFirestore();
+  const { toast } = useToast();
 
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [isWeatherLoading, setIsWeatherLoading] = useState(true);
-  
+  const [isSeeding, setIsSeeding] = useState(false);
+
   useEffect(() => {
-    const fetchWeather = async () => {
-      setIsWeatherLoading(true);
-      const data = await getDashboardWeather(user?.uid);
-      setWeatherData(data);
-      setIsWeatherLoading(false);
-    };
-    fetchWeather();
+    if (user?.uid) {
+        const fetchWeather = async () => {
+          setIsWeatherLoading(true);
+          const data = await getDashboardWeather(user.uid);
+          setWeatherData(data);
+          setIsWeatherLoading(false);
+        };
+        fetchWeather();
+    } else {
+        setIsWeatherLoading(false);
+    }
   }, [user]);
 
   const marketDataRef = useMemoFirebase(() => (firestore ? collection(firestore, 'market_data') : null), [firestore]);
   const marketDataQuery = useMemoFirebase(
-    () => (marketDataRef ? query(marketDataRef, orderBy('pricePerKg', 'desc'), limit(3)) : null),
+    () => (marketDataRef ? query(marketDataRef, orderBy('date', 'desc'), limit(3)) : null),
     [marketDataRef]
   );
   const { data: marketData, isLoading: isMarketLoading } = useCollection(marketDataQuery);
+  
+  const handleSeedData = async () => {
+      if (!user) {
+          toast({ variant: "destructive", title: "You must be logged in to seed data." });
+          return;
+      }
+      setIsSeeding(true);
+      const result = await seedMarketData(user.uid);
+      if (result.success) {
+          toast({ title: "Success!", description: result.message });
+      } else {
+          toast({ variant: "destructive", title: "Error", description: result.message });
+      }
+      setIsSeeding(false);
+  };
   
   if (!user) {
     return (
@@ -84,7 +106,7 @@ export default function DashboardPage() {
                 <TrendingUp className="w-8 h-8 text-primary" />
                 <CardTitle className="text-2xl font-headline">Top Market Movers</CardTitle>
               </div>
-              <CardDescription>Crops with the highest market price right now.</CardDescription>
+              <CardDescription>Crops with the highest market price right now. Updates when new data is seeded.</CardDescription>
             </CardHeader>
             <CardContent>
               {isMarketLoading ? (<p>Loading market trends...</p>) : marketData && marketData.length > 0 ? (
@@ -99,7 +121,7 @@ export default function DashboardPage() {
                     </li>
                   ))}
                 </ul>
-              ) : <p>Market data not available.</p>}
+              ) : <p>No recent market data available. Try seeding new data.</p>}
             </CardContent>
           </Card>
 
@@ -134,7 +156,7 @@ export default function DashboardPage() {
                         <li key={alert.name}>
                             <div className="flex justify-between items-center">
                                 <p className="font-semibold">{alert.name} on {alert.crop}</p>
-                                <span className={`px-2 py-1 text-xs rounded-full ${alert.severity === 'High' ? 'bg-destructive/20 text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}>{alert.severity}</span>
+                                <span className={`px-2 py-1 text-xs rounded-full ${alert.severity === 'High' ? 'bg-destructive/20 text-destructive' : 'bg-yellow-500/20 text-yellow-700'}`}>{alert.severity}</span>
                             </div>
                             <p className="text-sm text-muted-foreground">High probability of infestation. Immediate action recommended.</p>
                         </li>
@@ -154,10 +176,10 @@ export default function DashboardPage() {
                 <CloudSun className="w-8 h-8 text-primary" />
                 <CardTitle className="text-2xl font-headline">Weather Today</CardTitle>
               </div>
-              <CardDescription>{isWeatherLoading ? "Loading..." : weatherData?.location || "Your Local Forecast"}</CardDescription>
+              <CardDescription>{isWeatherLoading ? "Loading..." : weatherData?.location || "Set location in profile"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                {isWeatherLoading ? (<p>Loading weather...</p>) : weatherData ? (
+                {isWeatherLoading ? (<div className="text-center"><p>Loading live weather...</p></div>) : weatherData ? (
                 <>
                   <div className="text-center">
                       <p className="text-6xl font-bold">{Math.round(weatherData.temperature)}°C</p>
@@ -171,7 +193,7 @@ export default function DashboardPage() {
                       <div className="flex items-center gap-2"><Sunset className="w-4 h-4 text-muted-foreground"/> <span>Sunset: 6:50 PM</span></div>
                   </div>
                 </>
-                ) : <p>Could not load live weather. Ensure location is set in your profile.</p>}
+                ) : <p>Could not load live weather. Ensure your location is set in your profile.</p>}
             </CardContent>
           </Card>
           
@@ -179,21 +201,16 @@ export default function DashboardPage() {
             <CardHeader>
                <div className="flex items-center gap-3">
                 <Wheat className="w-8 h-8 text-primary" />
-                <CardTitle className="text-2xl font-headline">Crop Suggestions</CardTitle>
+                <CardTitle className="text-2xl font-headline">Market Opportunity</CardTitle>
               </div>
+              <CardDescription>Generate AI-powered crop suggestions for your region.</CardDescription>
             </CardHeader>
             <CardContent>
-                 <ul className="space-y-4">
-                {cropSuggestions.map(crop => (
-                  <li key={crop.name} className="flex items-center justify-between p-2 bg-secondary/30 rounded-lg">
-                    <div>
-                      <p className="font-semibold">{crop.name}</p>
-                      <p className="text-sm text-muted-foreground">{crop.reason}</p>
-                    </div>
-                    <Button variant="outline" size="sm">Info</Button>
-                  </li>
-                ))}
-              </ul>
+                <p className="text-sm text-muted-foreground mb-4">Click the button below to use AI to analyze market trends and populate the market data list with high-demand crops for your area.</p>
+                <Button onClick={handleSeedData} disabled={isSeeding} className="w-full">
+                    {isSeeding ? "Analyzing Market..." : "Seed AI Suggestions"}
+                    <RefreshCw className={`ml-2 h-4 w-4 ${isSeeding ? 'animate-spin' : ''}`} />
+                </Button>
             </CardContent>
           </Card>
         </div>
