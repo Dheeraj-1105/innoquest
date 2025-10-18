@@ -31,6 +31,6 @@ export const governmentSchemes = [
     keywords: ['nmsa', 'sustainable agriculture', 'soil health'],
     description: 'NMSA has been formulated for enhancing agricultural productivity especially in rainfed areas focusing on integrated farming, water use efficiency, soil health management and synergizing resource conservation.',
     eligibility: 'Varies by specific sub-mission and state-level implementation. Generally open to all farmers.',
-    link: 'https://agricoop.gov.in/en/national-mission-for-sustainable-agriculture'
+    link: 'https://nmsa.dac.gov.in/'
   }
 ];
