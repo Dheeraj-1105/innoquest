@@ -185,7 +185,7 @@ export async function getDashboardData(userId: string) {
     const weatherData = await getWeatherData(location);
 
     if (!weatherData) {
-      return { weatherData: null, insights: null };
+      return { weatherData: null, insights: null, marketData: [] };
     }
 
     const marketData = await getMarketData();
@@ -209,6 +209,7 @@ export async function seedMarketData(userId: string) {
     return { success: false, message: "User not found." };
   }
   try {
+    const { firestore } = await initializeServerApp();
     const farmerProfile = await getFarmerProfile(userId);
     const region = farmerProfile?.location?.split(',')[1]?.trim() || 'Maharashtra';
     
@@ -218,7 +219,6 @@ export async function seedMarketData(userId: string) {
       throw new Error("AI failed to suggest any crops.");
     }
 
-    const { firestore } = await initializeServerApp();
     const batch = firestore.batch();
     const marketRef = firestore.collection('market_data');
     
