@@ -24,13 +24,13 @@ export const governmentSchemes = [
       'The KCC scheme aims at providing adequate and timely credit support from the banking system under a single window with a flexible and simplified procedure to the farmers for their cultivation and other needs.',
     eligibility:
       'Farmers - individual/joint borrowers who are owner cultivators; tenant farmers, oral lessees & sharecroppers; Self Help Groups (SHGs) or Joint Liability Groups (JLGs) of farmers including tenant farmers.',
-    link: 'https://www.sbi.co.in/web/agri-rural/agriculture-banking/crop-finance/kisan-credit-card-kcc',
+    link: 'https://www.jansamarth.in/kisan-credit-card-scheme',
   },
   {
     title: 'National Mission for Sustainable Agriculture (NMSA)',
     keywords: ['nmsa', 'sustainable agriculture', 'soil health'],
     description: 'NMSA has been formulated for enhancing agricultural productivity especially in rainfed areas focusing on integrated farming, water use efficiency, soil health management and synergizing resource conservation.',
     eligibility: 'Varies by specific sub-mission and state-level implementation. Generally open to all farmers.',
-    link: 'https://nmsa.gov.in/'
+    link: 'https://agricoop.gov.in/en/national-mission-for-sustainable-agriculture'
   }
 ];
