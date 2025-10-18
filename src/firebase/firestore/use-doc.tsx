@@ -1,3 +1,4 @@
+
 'use client';
     
 import { useState, useEffect } from 'react';
@@ -59,7 +60,6 @@ export function useDoc<T = any>(
 
     const unsubscribe = onSnapshot(
       memoizedDocRef,
-      { includeMetadataChanges: true }, // Important for offline!
       (snapshot: DocumentSnapshot<DocumentData>) => {
         if (snapshot.exists()) {
           setData({ ...(snapshot.data() as T), id: snapshot.id });
@@ -68,8 +68,7 @@ export function useDoc<T = any>(
           setData(null);
         }
         setError(null); // Clear any previous error
-        // Only show loading if we are getting from cache and don't have data yet
-        setIsLoading(snapshot.metadata.fromCache && !snapshot.exists());
+        setIsLoading(false);
       },
       (error: FirestoreError) => {
         const contextualError = new FirestorePermissionError({
@@ -94,3 +93,5 @@ export function useDoc<T = any>(
 
   return { data, isLoading, error };
 }
+
+    

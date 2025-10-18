@@ -16,15 +16,12 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
     }
     const data = snapshot.data();
 
-    // Only process messages from the user, and that haven't been processed.
-    if (data.role === 'user' && !data.processed) {
+    // Only process messages from the user, not from the assistant
+    if (data.role === 'user') {
         const { content, language = 'en' } = data;
         const { farmerId, advisoryId } = event.params;
         
         try {
-            // Mark the user's message as 'processed' to prevent loops
-            await snapshot.ref.update({ processed: true });
-
             // Call the AI to get advice
             const queryText = typeof content === 'string' ? content : '🎤 Voice message';
             const aiResponse = await getAiAdvice(queryText, language, farmerId);
@@ -42,3 +39,5 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
         }
     }
 });
+
+    

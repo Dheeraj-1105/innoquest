@@ -84,7 +84,7 @@ export function useCollection<T = any>(
         });
         setData(results);
         setError(null);
-        setIsLoading(snapshot.metadata.fromCache && results.length === 0);
+        setIsLoading(false); // Data loaded.
       },
       (error: FirestoreError) => {
         // This logic extracts the path from either a ref or a query
@@ -118,3 +118,5 @@ export function useCollection<T = any>(
   }
   return { data, isLoading, error };
 }
+
+    

@@ -15,13 +15,17 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import {
+  getAiAdvice,
+  getAiAdviceFromVoice,
+  getAiDiagnosisForCrop,
+} from "@/app/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, serverTimestamp, query, orderBy, getDocs } from 'firebase/firestore';
-import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { useUser } from "@/firebase";
 import Link from "next/link";
+
 
 type MessageContent = 
   | string 
@@ -33,8 +37,6 @@ type Message = {
   id: string;
   role: "user" | "assistant";
   content: MessageContent;
-  timestamp: any;
-  processed?: boolean;
 };
 
 const languages = [
@@ -56,50 +58,6 @@ export function ChatInterface() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useUser();
-  const firestore = useFirestore();
-
-  const advisoriesColRef = useMemoFirebase(
-    () => (firestore && user ? collection(firestore, 'farmers', user.uid, 'advisories') : null),
-    [firestore, user]
-  );
-  
-  const advisoriesQuery = useMemoFirebase(
-    () => (advisoriesColRef ? query(advisoriesColRef, orderBy('timestamp', 'asc')) : null),
-    [advisoriesColRef]
-  );
-
-  const { data: chatHistory, isLoading: isHistoryLoading, error: historyError } = useCollection<Message>(advisoriesQuery);
-
-  useEffect(() => {
-    if (chatHistory) {
-      const formattedHistory = chatHistory.map(msg => ({
-        ...msg,
-        timestamp: msg.timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
-      }));
-      setMessages(formattedHistory);
-    } else if (!isHistoryLoading) { // Only clear messages if not loading and history is null
-      setMessages([]);
-    }
-  }, [chatHistory, isHistoryLoading]);
-
-  // Fetch from server if cache fails or is empty on first load
-  useEffect(() => {
-      if (!isHistoryLoading && (!chatHistory || chatHistory.length === 0) && advisoriesQuery) {
-        getDocs(advisoriesQuery).then(snapshot => {
-            if (snapshot.empty && messages.length > 0) {
-              setMessages([]); // Clear if local state has messages but server is empty
-            } else if (!snapshot.empty) {
-              const serverData = snapshot.docs.map(doc => ({
-                  id: doc.id,
-                  ...doc.data(),
-                  timestamp: doc.data().timestamp?.toDate()?.toLocaleTimeString() || new Date().toLocaleTimeString(),
-              })) as Message[];
-              setMessages(serverData);
-            }
-        }).catch(err => console.error("Error fetching from server:", err));
-      }
-  }, [historyError, isHistoryLoading, chatHistory, advisoriesQuery, messages.length]);
-
 
   useEffect(() => {
     if(scrollAreaRef.current){
@@ -110,18 +68,8 @@ export function ChatInterface() {
     }
   }, [messages, isLoading]);
 
-  const addMessageToDb = (role: 'user' | 'assistant', content: MessageContent) => {
-    if (!advisoriesColRef) return;
-    const messageData: any = {
-      role,
-      content,
-      language,
-      timestamp: serverTimestamp(),
-    };
-    if (role === 'user') {
-      messageData.processed = false; // Mark user messages for the cloud function
-    }
-    addDocumentNonBlocking(advisoriesColRef, messageData);
+  const addMessage = (role: 'user' | 'assistant', content: MessageContent) => {
+    setMessages((prev) => [...prev, { id: Date.now().toString(), role, content }]);
   };
 
   const handleStartRecording = async () => {
@@ -144,18 +92,31 @@ export function ChatInterface() {
       };
 
       mediaRecorderRef.current.onstop = async () => {
+        setIsLoading(true);
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          // The Cloud Function will handle transcription and response
-          addMessageToDb("user", `Voice message sent at ${new Date().toLocaleTimeString()}`);
+          addMessage("user", "🎤 Voice message");
+          try {
+            const response = await getAiAdviceFromVoice(base64Audio, language, user!.uid);
+            addMessage("assistant", response);
+          } catch (error: any) {
+            toast({
+              variant: "destructive",
+              title: "AI Error",
+              description: error.message || "Failed to get voice advice.",
+            });
+          } finally {
+            setIsLoading(false);
+          }
         };
       };
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
+      toast({ title: "Recording started...", description: "Click the mic again to stop." });
     } catch (error) {
       toast({
         variant: "destructive",
@@ -171,9 +132,24 @@ export function ChatInterface() {
         toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to chat.' });
         return;
     }
+
     const userInput = input;
+    addMessage("user", userInput);
     setInput("");
-    addMessageToDb("user", userInput);
+    setIsLoading(true);
+
+    try {
+      const response = await getAiAdvice(userInput, language, user.uid);
+      addMessage("assistant", response);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "AI Error",
+        description: error.message,
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,7 +164,20 @@ export function ChatInterface() {
     reader.readAsDataURL(file);
     reader.onload = async () => {
       const base64Image = reader.result as string;
-      addMessageToDb("user", { image: base64Image });
+      addMessage("user", { image: base64Image });
+      setIsLoading(true);
+      try {
+        const response = await getAiDiagnosisForCrop(base64Image, language);
+        addMessage("assistant", response);
+      } catch (error: any) {
+        toast({
+          variant: "destructive",
+          title: "AI Error",
+          description: error.message || "Failed to get crop diagnosis.",
+        });
+      } finally {
+        setIsLoading(false);
+      }
     };
     event.target.value = '';
   };
@@ -213,22 +202,6 @@ export function ChatInterface() {
       return null;
     });
   }
-
-  // Effect to check if the last message is from the user and set loading state
-  useEffect(() => {
-    if (messages.length > 0) {
-      // Find the last user message
-      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-      // The AI is "thinking" if the last user message has not been processed yet.
-      if (lastUserMessage && lastUserMessage.processed === false) {
-        setIsLoading(true);
-      } else {
-        setIsLoading(false);
-      }
-    } else {
-      setIsLoading(false);
-    }
-  }, [messages]);
 
 
   const renderMessageContent = (content: MessageContent) => {
@@ -283,13 +256,6 @@ export function ChatInterface() {
   };
   
   const DisplayMessages = () => {
-    if (isHistoryLoading && messages.length === 0) {
-      return (
-        <div className="flex justify-center items-center h-full">
-          <p>Loading chat history...</p>
-        </div>
-      );
-    }
     if (messages.length === 0 && !isLoading) {
       return (
         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
@@ -323,7 +289,6 @@ export function ChatInterface() {
               )}
             >
               {renderMessageContent(message.content)}
-              <p className="text-xs mt-2 opacity-70">{typeof message.timestamp === 'string' ? message.timestamp : message.timestamp?.toDate()?.toLocaleTimeString()}</p>
             </div>
             {message.role === 'user' && (
               <Avatar>
