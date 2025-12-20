@@ -23,6 +23,8 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { errorEmitter } from "@/firebase/error-emitter";
+import { FirestorePermissionError } from "@/firebase/errors";
 
 const authSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address." }),
@@ -61,7 +63,6 @@ export function AuthForm() {
         const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
         const user = userCredential.user;
 
-        // Create a user profile document in Firestore
         if (user && firestore) {
             const userDocRef = doc(firestore, `farmers/${user.uid}`);
             const profileData = {
@@ -72,7 +73,21 @@ export function AuthForm() {
                 cropsGrown: [],
                 preferredLanguage: 'en'
             };
-            await setDoc(userDocRef, profileData, { merge: true });
+            
+            // Correctly use the standard setDoc for client-side operations
+            setDoc(userDocRef, profileData, { merge: true }).catch(async (serverError) => {
+                const permissionError = new FirestorePermissionError({
+                  path: userDocRef.path,
+                  operation: 'create',
+                  requestResourceData: profileData,
+                });
+                errorEmitter.emit('permission-error', permissionError);
+                toast({
+                    variant: "destructive",
+                    title: "Database Error",
+                    description: "Failed to create user profile. Please check permissions."
+                });
+            });
         }
         
         toast({

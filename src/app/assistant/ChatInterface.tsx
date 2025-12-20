@@ -89,7 +89,7 @@ export function ChatInterface() {
             role,
             content,
             timestamp: serverTimestamp(),
-            language,
+            language, // Keep language for context
             farmerId: user?.uid,
         });
     } catch (error) {
@@ -206,13 +206,11 @@ export function ChatInterface() {
 
 
   const renderAdvice = (text: string) => {
-    // This regex is more robust and handles various URL formats.
     const urlRegex = /(https?:\/\/[^\s"'<>`]+)/g;
     const parts = text.split(urlRegex);
 
     return parts.map((part, index) => {
         if (part && part.match(urlRegex)) {
-            // Ensure the URL is valid before creating a link
             try {
                 const url = new URL(part);
                 return (
@@ -223,12 +221,10 @@ export function ChatInterface() {
                     </Button>
                 );
             } catch (e) {
-                // If it's not a valid URL, just render it as text.
                 return <span key={index}>{part}</span>;
             }
         }
         if (part) {
-            // Replace newline characters for display
             return <span key={index}>{part.replace(/\\n/g, '\n')}</span>;
         }
         return null;
@@ -430,5 +426,3 @@ export function ChatInterface() {
     </div>
   );
 }
-
-    

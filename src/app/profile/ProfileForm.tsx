@@ -27,6 +27,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useUser, useFirestore, useDoc, useMemoFirebase } from "@/firebase";
 import { doc, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
+import { errorEmitter } from "@/firebase/error-emitter";
+import { FirestorePermissionError } from "@/firebase/errors";
+
 
 const profileSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -96,10 +99,16 @@ export function ProfileForm() {
           description: "Profile updated successfully!",
       });
     } catch (error: any) {
+        const permissionError = new FirestorePermissionError({
+          path: userProfileRef!.path,
+          operation: 'update',
+          requestResourceData: data,
+        });
+        errorEmitter.emit('permission-error', permissionError);
         toast({
             variant: "destructive",
             title: "Error saving profile",
-            description: error.message || "Something went wrong. Please try again.",
+            description: "Could not save profile. Check permissions.",
         });
     } finally {
         setIsSaving(false);
