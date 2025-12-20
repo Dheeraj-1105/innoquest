@@ -15,11 +15,6 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import {
-  getAiAdvice,
-  getAiAdviceFromVoice,
-  getAiDiagnosisForCrop,
-} from "@/app/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -52,7 +47,6 @@ export function ChatInterface() {
   const [input, setInput] = useState("");
   const [language, setLanguage] = useState("en");
   const [isRecording, setIsRecording] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const { toast } = useToast();
@@ -60,6 +54,7 @@ export function ChatInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useUser();
   const firestore = useFirestore();
+  const [isLoading, setIsLoading] = useState(false);
 
   const advisoriesRef = useMemoFirebase(
     () => (firestore && user ? collection(firestore, `farmers/${user.uid}/advisories`) : null),
@@ -71,7 +66,7 @@ export function ChatInterface() {
     [advisoriesRef]
   );
   
-  const { data: messages, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery, { source: 'cache' });
+  const { data: messages, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery);
 
   useEffect(() => {
     if(scrollAreaRef.current){
@@ -83,14 +78,17 @@ export function ChatInterface() {
   }, [messages, isLoading]);
 
   useEffect(() => {
-    if (!messages || messages.length === 0) {
-      setIsLoading(false);
-      return;
+    if (isHistoryLoading || !messages) {
+        setIsLoading(true);
+    } else if (messages.length > 0) {
+        const lastMessage = messages[messages.length - 1];
+        // The AI is "thinking" if the last message was from the user.
+        setIsLoading(lastMessage.role === 'user');
+    } else {
+        // No messages in history, not loading.
+        setIsLoading(false);
     }
-    const lastMessage = messages[messages.length - 1];
-    // Show loading if the last message is from the user
-    setIsLoading(lastMessage.role === 'user');
-  }, [messages]);
+  }, [messages, isHistoryLoading]);
 
   const addMessageToDb = async (role: 'user' | 'assistant', content: MessageContent) => {
     if (!advisoriesRef) return;
@@ -100,6 +98,7 @@ export function ChatInterface() {
             content,
             timestamp: serverTimestamp(),
             language,
+            farmerId: user?.uid, // Add farmerId for the backend function
         });
     } catch (error) {
         console.error("Error adding message to Firestore:", error);
@@ -136,21 +135,7 @@ export function ChatInterface() {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          // Just save the user message, the backend will handle the AI call
-          await addMessageToDb("user", `Voice message sent (will be transcribed)`);
-          // The backend function will be triggered by this message and will call getAiAdviceFromVoice
-          // For the purpose of this flow, we will simulate the AI call for the frontend
-          setIsLoading(true);
-          try {
-            await getAiAdviceFromVoice(base64Audio, language, user.uid);
-          } catch (error: any) {
-            toast({
-              variant: "destructive",
-              title: "AI Error",
-              description: error.message || "Failed to get voice advice.",
-            });
-            setIsLoading(false);
-          }
+          await addMessageToDb("user", { audio: base64Audio });
         };
       };
 
@@ -175,7 +160,6 @@ export function ChatInterface() {
 
     const userInput = input;
     setInput("");
-    // Just save the user's message. The cloud function will handle getting the AI response.
     await addMessageToDb("user", userInput);
   };
 
@@ -191,7 +175,6 @@ export function ChatInterface() {
     reader.readAsDataURL(file);
     reader.onload = async () => {
       const base64Image = reader.result as string;
-       // Just save a reference. The cloud function will handle the diagnosis.
       await addMessageToDb("user", { image: base64Image });
     };
     event.target.value = '';
@@ -213,7 +196,6 @@ export function ChatInterface() {
         );
       }
       if(part) {
-        // Replace escaped newlines with actual newlines
         return <span key={index}>{part.replace(/\\n/g, '\n')}</span>;
       }
       return null;
@@ -227,6 +209,9 @@ export function ChatInterface() {
     }
     if (typeof content === 'object' && content && "image" in content) {
       return <Image src={content.image} alt="Uploaded crop" width={200} height={200} className="rounded-lg" />;
+    }
+    if (typeof content === 'object' && content && "audio" in content) {
+        return <p><i>Voice message sent... (waiting for transcription)</i></p>
     }
     if (typeof content === 'object' && content && "advice" in content) {
       return (
@@ -378,7 +363,7 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={!user || isLoading || isHistoryLoading}
+          disabled={!user || isHistoryLoading}
         />
         <Button
           onClick={handleSendMessage}
@@ -404,3 +389,5 @@ export function ChatInterface() {
     </div>
   );
 }
+
+    
