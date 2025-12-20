@@ -21,6 +21,9 @@ import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import Link from "next/link";
 import { collection, addDoc, serverTimestamp, query, orderBy, Timestamp } from "firebase/firestore";
+import { getAiAdvice, getAiDiagnosisForCrop, getAiAdviceFromVoice } from "../actions";
+import type { ChatAssistantOutput } from "@/ai/flows/chat-assistant-flow";
+import type { DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease-flow";
 
 
 type MessageContent =
@@ -35,7 +38,6 @@ type Message = {
   role: "user" | "assistant";
   content: MessageContent;
   timestamp?: Timestamp;
-  processed?: boolean;
 };
 
 const languages = [
@@ -79,21 +81,6 @@ export function ChatInterface() {
     }
   }, [messages]);
 
-  useEffect(() => {
-    if (isHistoryLoading) {
-      setIsLoading(true);
-      return;
-    }
-    if (messages && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      // The AI is "thinking" if the last message was from the user and hasn't been processed yet.
-      const isAwaitingResponse = lastMessage.role === 'user' && lastMessage.processed === false;
-      setIsLoading(isAwaitingResponse);
-    } else {
-      // No messages in history, not loading.
-      setIsLoading(false);
-    }
-  }, [messages, isHistoryLoading]);
 
   const addMessageToDb = async (role: 'user' | 'assistant', content: MessageContent) => {
     if (!advisoriesRef) return;
@@ -104,7 +91,6 @@ export function ChatInterface() {
             timestamp: serverTimestamp(),
             language,
             farmerId: user?.uid,
-            processed: role === 'assistant', // User messages start as unprocessed
         });
     } catch (error) {
         console.error("Error adding message to Firestore:", error);
@@ -114,6 +100,10 @@ export function ChatInterface() {
             description: "Could not save your message. Please try again.",
         });
     }
+  };
+
+  const handleAiResponse = async (response: ChatAssistantOutput | DiagnoseCropDiseaseOutput) => {
+    await addMessageToDb("assistant", response);
   };
   
   const handleStartRecording = async () => {
@@ -141,7 +131,16 @@ export function ChatInterface() {
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
+          setIsLoading(true);
           await addMessageToDb("user", { audio: base64Audio });
+          try {
+            const response = await getAiAdviceFromVoice(base64Audio, language, user.uid);
+            await handleAiResponse(response);
+          } catch(e: any) {
+            toast({ variant: "destructive", title: "AI Error", description: e.message });
+          } finally {
+            setIsLoading(false);
+          }
         };
       };
 
@@ -166,7 +165,17 @@ export function ChatInterface() {
 
     const userInput = input;
     setInput("");
+    setIsLoading(true);
     await addMessageToDb("user", userInput);
+
+    try {
+      const response = await getAiAdvice(userInput, language, user.uid);
+      await handleAiResponse(response);
+    } catch(e: any) {
+       toast({ variant: "destructive", title: "AI Error", description: e.message });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,7 +190,16 @@ export function ChatInterface() {
     reader.readAsDataURL(file);
     reader.onload = async () => {
       const base64Image = reader.result as string;
+      setIsLoading(true);
       await addMessageToDb("user", { image: base64Image });
+      try {
+        const response = await getAiDiagnosisForCrop(base64Image, language);
+        await handleAiResponse(response);
+      } catch(e: any) {
+        toast({ variant: "destructive", title: "AI Error", description: e.message });
+      } finally {
+        setIsLoading(false);
+      }
     };
     event.target.value = '';
   };
@@ -412,3 +430,5 @@ export function ChatInterface() {
     </div>
   );
 }
+
+    
