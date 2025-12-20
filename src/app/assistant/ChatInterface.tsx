@@ -27,13 +27,15 @@ type MessageContent =
   | string
   | { advice: string; weather?: string; market?: string; language?: string; }
   | { disease: string; recommendation: string }
-  | { image: string };
+  | { image: string }
+  | { audio: string };
 
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: MessageContent;
   timestamp?: Timestamp;
+  processed?: boolean;
 };
 
 const languages = [
@@ -78,15 +80,18 @@ export function ChatInterface() {
   }, [messages, isLoading]);
 
   useEffect(() => {
-    if (isHistoryLoading || !messages) {
-        setIsLoading(true);
-    } else if (messages.length > 0) {
-        const lastMessage = messages[messages.length - 1];
-        // The AI is "thinking" if the last message was from the user.
-        setIsLoading(lastMessage.role === 'user');
+    if (isHistoryLoading) {
+      setIsLoading(true);
+      return;
+    }
+    if (messages && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      // The AI is "thinking" if the last message was from the user and hasn't been processed.
+      const isAwaitingResponse = lastMessage.role === 'user' && lastMessage.processed === false;
+      setIsLoading(isAwaitingResponse);
     } else {
-        // No messages in history, not loading.
-        setIsLoading(false);
+      // No messages in history, not loading.
+      setIsLoading(false);
     }
   }, [messages, isHistoryLoading]);
 
@@ -98,7 +103,8 @@ export function ChatInterface() {
             content,
             timestamp: serverTimestamp(),
             language,
-            farmerId: user?.uid, // Add farmerId for the backend function
+            farmerId: user?.uid,
+            processed: role === 'user' ? false : true, // Mark user messages for backend processing
         });
     } catch (error) {
         console.error("Error adding message to Firestore:", error);
@@ -363,7 +369,7 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={!user || isHistoryLoading}
+          disabled={!user || isHistoryLoading || isLoading}
         />
         <Button
           onClick={handleSendMessage}
@@ -389,5 +395,3 @@ export function ChatInterface() {
     </div>
   );
 }
-
-    

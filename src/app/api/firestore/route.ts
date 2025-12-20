@@ -1,4 +1,6 @@
 
+'use server';
+
 import { initializeServerApp } from '@/firebase/server-init';
 import { getAiAdvice, getAiDiagnosisForCrop, getAiAdviceFromVoice } from '@/app/actions';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
@@ -15,26 +17,22 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
         return;
     }
     const data = snapshot.data();
+    const { advisoryId } = event.params;
 
-    // Only process messages from the user, not from the assistant
-    if (data.role === 'user') {
+    // Only process messages from the user, and only if they haven't been processed yet.
+    if (data.role === 'user' && !data.processed) {
         const { content, language = 'en', farmerId } = data;
-        const { advisoryId } = event.params;
         
         try {
-            let aiResponse;
             let responseContent;
 
             if (typeof content === 'string') {
-               aiResponse = await getAiAdvice(content, language, farmerId);
-               responseContent = aiResponse;
+               responseContent = await getAiAdvice(content, language, farmerId);
             } else if (content && typeof content === 'object') {
               if ('image' in content) {
-                aiResponse = await getAiDiagnosisForCrop(content.image, language);
-                responseContent = aiResponse;
+                responseContent = await getAiDiagnosisForCrop(content.image, language);
               } else if ('audio' in content) {
-                aiResponse = await getAiAdviceFromVoice(content.audio, language, farmerId);
-                responseContent = aiResponse;
+                responseContent = await getAiAdviceFromVoice(content.audio, language, farmerId);
               }
             }
             
@@ -45,6 +43,7 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
                     role: 'assistant',
                     content: responseContent,
                     timestamp: new Date(),
+                    farmerId,
                 });
             }
 
@@ -55,9 +54,11 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
                     role: 'assistant',
                     content: { advice: 'Sorry, I encountered an error. Please try again.' },
                     timestamp: new Date(),
+                    farmerId,
                 });
+        } finally {
+            // Mark the user's message as processed to prevent re-triggering.
+            await snapshot.ref.update({ processed: true });
         }
     }
 });
-
-    
