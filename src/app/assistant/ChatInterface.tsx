@@ -77,7 +77,7 @@ export function ChatInterface() {
         viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
       }
     }
-  }, [messages, isLoading]);
+  }, [messages]);
 
   useEffect(() => {
     if (isHistoryLoading) {
@@ -86,7 +86,7 @@ export function ChatInterface() {
     }
     if (messages && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
-      // The AI is "thinking" if the last message was from the user and hasn't been processed.
+      // The AI is "thinking" if the last message was from the user and hasn't been processed yet.
       const isAwaitingResponse = lastMessage.role === 'user' && lastMessage.processed === false;
       setIsLoading(isAwaitingResponse);
     } else {
@@ -104,14 +104,14 @@ export function ChatInterface() {
             timestamp: serverTimestamp(),
             language,
             farmerId: user?.uid,
-            processed: role === 'user' ? false : true, // Mark user messages for backend processing
+            processed: role === 'assistant', // User messages start as unprocessed
         });
     } catch (error) {
         console.error("Error adding message to Firestore:", error);
         toast({
             variant: "destructive",
             title: "Database Error",
-            description: "Could not save message."
+            description: "Could not save your message. Please try again.",
         });
     }
   };
@@ -188,25 +188,34 @@ export function ChatInterface() {
 
 
   const renderAdvice = (text: string) => {
-    const urlRegex = /(https?:\/\/[^\s"'<>()]+(?:\.[^\s"'<>()]+)*)/g;
+    // This regex is more robust and handles various URL formats.
+    const urlRegex = /(https?:\/\/[^\s"'<>`]+)/g;
     const parts = text.split(urlRegex);
 
     return parts.map((part, index) => {
-      if (part && part.match(urlRegex)) {
-        return (
-          <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1 inline-block align-baseline whitespace-normal break-words" key={index}>
-            <Link href={part} target="_blank" rel="noopener noreferrer">
-              Apply Here <ArrowUpRight className="w-4 h-4 ml-1 inline-block" />
-            </Link>
-          </Button>
-        );
-      }
-      if(part) {
-        return <span key={index}>{part.replace(/\\n/g, '\n')}</span>;
-      }
-      return null;
+        if (part && part.match(urlRegex)) {
+            // Ensure the URL is valid before creating a link
+            try {
+                const url = new URL(part);
+                return (
+                    <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1 inline-block align-baseline whitespace-normal break-words" key={index}>
+                        <Link href={url.href} target="_blank" rel="noopener noreferrer">
+                            Apply Here <ArrowUpRight className="w-4 h-4 ml-1 inline-block" />
+                        </Link>
+                    </Button>
+                );
+            } catch (e) {
+                // If it's not a valid URL, just render it as text.
+                return <span key={index}>{part}</span>;
+            }
+        }
+        if (part) {
+            // Replace newline characters for display
+            return <span key={index}>{part.replace(/\\n/g, '\n')}</span>;
+        }
+        return null;
     });
-  }
+}
 
 
   const renderMessageContent = (content: MessageContent) => {
@@ -217,36 +226,38 @@ export function ChatInterface() {
       return <Image src={content.image} alt="Uploaded crop" width={200} height={200} className="rounded-lg" />;
     }
     if (typeof content === 'object' && content && "audio" in content) {
-        return <p><i>Voice message sent... (waiting for transcription)</i></p>
+        return <p><i>Voice message sent... waiting for transcription.</i></p>
     }
     if (typeof content === 'object' && content && "advice" in content) {
       return (
           <div className="space-y-4">
               <div className="whitespace-pre-wrap">{renderAdvice(content.advice)}</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {content.weather && (
-                      <Card className="bg-background/50">
-                          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                              <CardTitle className="text-sm font-medium">Weather Context</CardTitle>
-                              <Cloud className="h-4 w-4 text-muted-foreground" />
-                          </CardHeader>
-                          <CardContent>
-                              <p className="text-sm text-muted-foreground">{content.weather}</p>
-                          </CardContent>
-                      </Card>
-                  )}
-                  {content.market && (
-                      <Card className="bg-background/50">
-                          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                              <CardTitle className="text-sm font-medium">Market Context</CardTitle>
-                              <BarChartHorizontal className="h-4 w-4 text-muted-foreground" />
-                          </CardHeader>
-                          <CardContent>
-                               <p className="text-sm text-muted-foreground">{content.market}</p>
-                          </CardContent>
-                      </Card>
-                  )}
-              </div>
+              {(content.weather || content.market) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-muted-foreground/20">
+                    {content.weather && (
+                        <Card className="bg-background/50 shadow-none border-none">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-0 pt-2">
+                                <CardTitle className="text-sm font-medium">Weather Context</CardTitle>
+                                <Cloud className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                <p className="text-sm text-muted-foreground">{content.weather}</p>
+                            </CardContent>
+                        </Card>
+                    )}
+                    {content.market && (
+                        <Card className="bg-background/50 shadow-none border-none">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-0 pt-2">
+                                <CardTitle className="text-sm font-medium">Market Context</CardTitle>
+                                <BarChartHorizontal className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                 <p className="text-sm text-muted-foreground">{content.market}</p>
+                            </CardContent>
+                        </Card>
+                    )}
+                </div>
+              )}
           </div>
       );
     }
@@ -255,12 +266,12 @@ export function ChatInterface() {
             <div className="space-y-2">
                 <h4 className="font-bold">Disease Identified: {content.disease}</h4>
                 <p className="font-semibold">Recommendation:</p>
-                <p>{content.recommendation}</p>
+                <p className="whitespace-pre-wrap">{content.recommendation}</p>
             </div>
         )
     }
 
-    return null;
+    return <p><i>Unsupported message format.</i></p>;
   };
 
   const DisplayMessages = () => {
@@ -269,6 +280,7 @@ export function ChatInterface() {
          <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
            <Bot className="w-16 h-16 mb-4 animate-pulse" />
            <h3 className="text-lg font-semibold">Loading Chat History...</h3>
+           <p>Please wait a moment.</p>
          </div>
       );
     }
@@ -298,7 +310,7 @@ export function ChatInterface() {
             )}
             <div
               className={cn(
-                "max-w-2xl rounded-lg px-4 py-3",
+                "max-w-2xl rounded-lg px-4 py-3 shadow-md",
                 message.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-secondary"
@@ -318,7 +330,7 @@ export function ChatInterface() {
              <Avatar>
                 <AvatarFallback><Bot /></AvatarFallback>
               </Avatar>
-            <div className="bg-secondary rounded-lg px-4 py-3">
+            <div className="bg-secondary rounded-lg px-4 py-3 shadow-md">
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.3s]"></div>
                 <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.15s]"></div>
@@ -337,7 +349,7 @@ export function ChatInterface() {
         <h2 className="text-2xl font-headline font-bold">AI Field Agent</h2>
         <div className="flex items-center gap-2">
           <Languages className="w-5 h-5 text-muted-foreground" />
-          <Select value={language} onValueChange={setLanguage}>
+          <Select value={language} onValueChange={setLanguage} disabled={!user}>
             <SelectTrigger className="w-[120px]">
               <SelectValue placeholder="Language" />
             </SelectTrigger>
@@ -353,14 +365,16 @@ export function ChatInterface() {
       </div>
 
       <ScrollArea className="flex-grow mb-4 pr-4 -mr-4" ref={scrollAreaRef}>
-        <DisplayMessages />
+        <div className="p-1">
+          <DisplayMessages />
+        </div>
       </ScrollArea>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 pt-4 border-t">
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={user ? "Type your question or upload an image..." : "Please log in to chat"}
+          placeholder={user ? "Type your question or use the mic/image buttons..." : "Please log in to chat"}
           className="flex-grow resize-none"
           rows={1}
           onKeyDown={(e) => {
@@ -369,20 +383,23 @@ export function ChatInterface() {
               handleSendMessage();
             }
           }}
-          disabled={!user || isHistoryLoading || isLoading}
+          disabled={!user || isLoading}
         />
         <Button
           onClick={handleSendMessage}
-          disabled={!input.trim() || !user || isLoading || isHistoryLoading}
+          disabled={!input.trim() || !user || isLoading}
           size="icon"
         >
           <Send className="w-5 h-5" />
+          <span className="sr-only">Send Message</span>
         </Button>
-        <Button onClick={handleStartRecording} disabled={!user || isLoading || isHistoryLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
+        <Button onClick={handleStartRecording} disabled={!user || isLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
           <Mic className="w-5 h-5" />
+           <span className="sr-only">Record Voice</span>
         </Button>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={!user || isLoading || isHistoryLoading} size="icon" variant="outline">
+        <Button onClick={() => fileInputRef.current?.click()} disabled={!user || isLoading} size="icon" variant="outline">
           <ImageUp className="w-5 h-5" />
+           <span className="sr-only">Upload Image</span>
         </Button>
         <input
           type="file"

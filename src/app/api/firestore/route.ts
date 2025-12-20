@@ -17,22 +17,26 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
         return;
     }
     const data = snapshot.data();
-    const { advisoryId } = event.params;
+    const { farmerId, advisoryId } = event.params;
 
     // Only process messages from the user, and only if they haven't been processed yet.
-    if (data.role === 'user' && !data.processed) {
-        const { content, language = 'en', farmerId } = data;
+    if (data.role === 'user' && data.processed === false) {
+        const { content, language = 'en' } = data;
         
         try {
             let responseContent;
 
+            // Handle different types of user content
             if (typeof content === 'string') {
-               responseContent = await getAiAdvice(content, language, farmerId);
+               const response = await getAiAdvice(content, language, farmerId);
+               responseContent = response;
             } else if (content && typeof content === 'object') {
-              if ('image' in content) {
-                responseContent = await getAiDiagnosisForCrop(content.image, language);
-              } else if ('audio' in content) {
-                responseContent = await getAiAdviceFromVoice(content.audio, language, farmerId);
+              if ('image' in content && typeof content.image === 'string') {
+                const response = await getAiDiagnosisForCrop(content.image, language);
+                responseContent = response;
+              } else if ('audio' in content && typeof content.audio === 'string') {
+                const response = await getAiAdviceFromVoice(content.audio, language, farmerId);
+                responseContent = response;
               }
             }
             
@@ -44,17 +48,22 @@ export const processNewAdvisory = onDocumentCreated("/farmers/{farmerId}/advisor
                     content: responseContent,
                     timestamp: new Date(),
                     farmerId,
+                    processed: true, // AI messages are always "processed"
                 });
+            } else {
+                throw new Error("Could not generate a valid AI response for the given content.");
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(`Error processing advisory ${advisoryId} for farmer ${farmerId}:`, error);
+             // Save an error message back to the user
              const advisoriesRef = firestore.collection(`farmers/${farmerId}/advisories`);
-              await advisoriesRef.add({
+             await advisoriesRef.add({
                     role: 'assistant',
-                    content: { advice: 'Sorry, I encountered an error. Please try again.' },
+                    content: { advice: `Sorry, I encountered an error processing your request: ${error.message}` },
                     timestamp: new Date(),
                     farmerId,
+                    processed: true,
                 });
         } finally {
             // Mark the user's message as processed to prevent re-triggering.
