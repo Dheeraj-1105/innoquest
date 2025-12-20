@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import Link from "next/link";
 import { collection, addDoc, serverTimestamp, query, orderBy, Timestamp } from "firebase/firestore";
-import { setDocumentNonBlocking, addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 
 
 type MessageContent =
@@ -72,7 +71,7 @@ export function ChatInterface() {
     [advisoriesRef]
   );
   
-  const { data: messages, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery);
+  const { data: messages, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery, { source: 'cache' });
 
   useEffect(() => {
     if(scrollAreaRef.current){
@@ -82,6 +81,16 @@ export function ChatInterface() {
       }
     }
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (!messages || messages.length === 0) {
+      setIsLoading(false);
+      return;
+    }
+    const lastMessage = messages[messages.length - 1];
+    // Show loading if the last message is from the user
+    setIsLoading(lastMessage.role === 'user');
+  }, [messages]);
 
   const addMessageToDb = async (role: 'user' | 'assistant', content: MessageContent) => {
     if (!advisoriesRef) return;
@@ -122,23 +131,24 @@ export function ChatInterface() {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        setIsLoading(true);
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
-          await addMessageToDb("user", "🎤 Voice message");
+          // Just save the user message, the backend will handle the AI call
+          await addMessageToDb("user", `Voice message sent (will be transcribed)`);
+          // The backend function will be triggered by this message and will call getAiAdviceFromVoice
+          // For the purpose of this flow, we will simulate the AI call for the frontend
+          setIsLoading(true);
           try {
-            const response = await getAiAdviceFromVoice(base64Audio, language, user!.uid);
-            await addMessageToDb("assistant", response);
+            await getAiAdviceFromVoice(base64Audio, language, user.uid);
           } catch (error: any) {
             toast({
               variant: "destructive",
               title: "AI Error",
               description: error.message || "Failed to get voice advice.",
             });
-          } finally {
             setIsLoading(false);
           }
         };
@@ -165,21 +175,8 @@ export function ChatInterface() {
 
     const userInput = input;
     setInput("");
+    // Just save the user's message. The cloud function will handle getting the AI response.
     await addMessageToDb("user", userInput);
-    setIsLoading(true);
-
-    try {
-      const response = await getAiAdvice(userInput, language, user.uid);
-      await addMessageToDb("assistant", response);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "AI Error",
-        description: error.message,
-      });
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -194,23 +191,12 @@ export function ChatInterface() {
     reader.readAsDataURL(file);
     reader.onload = async () => {
       const base64Image = reader.result as string;
+       // Just save a reference. The cloud function will handle the diagnosis.
       await addMessageToDb("user", { image: base64Image });
-      setIsLoading(true);
-      try {
-        const response = await getAiDiagnosisForCrop(base64Image, language);
-        await addMessageToDb("assistant", response);
-      } catch (error: any) {
-        toast({
-          variant: "destructive",
-          title: "AI Error",
-          description: error.message || "Failed to get crop diagnosis.",
-        });
-      } finally {
-        setIsLoading(false);
-      }
     };
     event.target.value = '';
   };
+
 
   const renderAdvice = (text: string) => {
     const urlRegex = /(https?:\/\/[^\s"'<>()]+(?:\.[^\s"'<>()]+)*)/g;
@@ -287,7 +273,7 @@ export function ChatInterface() {
   };
 
   const DisplayMessages = () => {
-    if (isHistoryLoading) {
+    if (isHistoryLoading && (!messages || messages.length === 0)) {
       return (
          <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
            <Bot className="w-16 h-16 mb-4 animate-pulse" />
@@ -418,5 +404,3 @@ export function ChatInterface() {
     </div>
   );
 }
-
-    
