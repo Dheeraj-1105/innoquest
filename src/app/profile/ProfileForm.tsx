@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useForm } from "react-hook-form";
@@ -24,9 +25,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
 import { useUser, useFirestore, useDoc, useMemoFirebase } from "@/firebase";
-import { setDocumentNonBlocking } from "@/firebase/non-blocking-updates";
-import { doc } from "firebase/firestore";
-import { useEffect } from "react";
+import { doc, setDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
 
 const profileSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -42,6 +42,7 @@ export function ProfileForm() {
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
+  const [isSaving, setIsSaving] = useState(false);
 
   const userProfileRef = useMemoFirebase(
     () => (firestore && user ? doc(firestore, "farmers", user.uid) : null),
@@ -78,7 +79,7 @@ export function ProfileForm() {
       toast({ variant: "destructive", title: "Error", description: "You must be logged in to save your profile." });
       return;
     }
-
+    setIsSaving(true);
     try {
       const profileToSave = {
         ...data,
@@ -88,18 +89,20 @@ export function ProfileForm() {
       };
       
       const userDocRef = doc(firestore, `farmers/${user.uid}`);
-      setDocumentNonBlocking(userDocRef, profileToSave, { merge: true });
+      await setDoc(userDocRef, profileToSave, { merge: true });
       
       toast({
           title: "Success",
           description: "Profile updated successfully!",
       });
-    } catch (error) {
+    } catch (error: any) {
         toast({
             variant: "destructive",
-            title: "Error",
-            description: "Something went wrong. Please try again.",
+            title: "Error saving profile",
+            description: error.message || "Something went wrong. Please try again.",
         });
+    } finally {
+        setIsSaving(false);
     }
   }
 
@@ -196,7 +199,7 @@ export function ProfileForm() {
             </FormItem>
           )}
         />
-        <Button type="submit">Save Profile</Button>
+        <Button type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Profile'}</Button>
       </form>
     </Form>
   );

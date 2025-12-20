@@ -17,8 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, useFirestore } from "@/firebase";
-import { setDocumentNonBlocking } from "@/firebase/non-blocking-updates";
-import { doc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -63,7 +62,7 @@ export function AuthForm() {
         const user = userCredential.user;
 
         // Create a user profile document in Firestore
-        if (user) {
+        if (user && firestore) {
             const userDocRef = doc(firestore, `farmers/${user.uid}`);
             const profileData = {
                 id: user.uid,
@@ -73,8 +72,7 @@ export function AuthForm() {
                 cropsGrown: [],
                 preferredLanguage: 'en'
             };
-            // Use a non-blocking write for a smoother UI experience
-            setDocumentNonBlocking(userDocRef, profileData, { merge: true });
+            await setDoc(userDocRef, profileData, { merge: true });
         }
         
         toast({
