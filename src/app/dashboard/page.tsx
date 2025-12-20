@@ -7,8 +7,8 @@ import { Separator } from "@/components/ui/separator";
 import { Wheat, TestTube2, Bug, CloudSun, Wind, Droplet, Sunrise, Sunset, TrendingUp, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useUser } from "@/firebase";
-import { getDashboardData, seedMarketData } from "../actions";
-import { useEffect, useState } from "react";
+import { getDashboardData, getWeather, seedMarketData } from "../actions";
+import { useEffect, useState, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import type { DashboardInsightsOutput } from "@/ai/flows/get-dashboard-insights-flow";
 
@@ -37,26 +37,37 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSeeding, setIsSeeding] = useState(false);
 
+  const fetchDashboardData = useCallback(async (userId: string) => {
+    setIsLoading(true);
+    try {
+      const { insights, marketData: newMarketData } = await getDashboardData(userId);
+      setInsights(insights);
+      setMarketData(newMarketData || []);
+    } catch (error: any) {
+       toast({ variant: "destructive", title: "Error fetching dashboard insights", description: error.message });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  const fetchWeather = useCallback(async (userId: string) => {
+    try {
+        const weather = await getWeather(userId);
+        setWeatherData(weather);
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Error fetching weather", description: error.message });
+    }
+  }, [toast]);
+
+
   useEffect(() => {
     if (user?.uid) {
-        const fetchData = async () => {
-          setIsLoading(true);
-          try {
-            const { weatherData, insights, marketData } = await getDashboardData(user.uid);
-            setWeatherData(weatherData);
-            setInsights(insights);
-            setMarketData(marketData || []);
-          } catch (error: any) {
-             toast({ variant: "destructive", title: "Error fetching dashboard data", description: error.message });
-          } finally {
-            setIsLoading(false);
-          }
-        };
-        fetchData();
+        fetchDashboardData(user.uid);
+        fetchWeather(user.uid);
     } else {
         setIsLoading(false);
     }
-  }, [user, toast]);
+  }, [user, fetchDashboardData, fetchWeather]);
   
   const handleSeedData = async () => {
       if (!user) {
@@ -68,8 +79,7 @@ export default function DashboardPage() {
       if (result.success) {
           toast({ title: "Success!", description: result.message });
           // Re-fetch data to show new market prices
-           const { marketData: newMarketData } = await getDashboardData(user.uid);
-           setMarketData(newMarketData || []);
+           await fetchDashboardData(user.uid);
       } else {
           toast({ variant: "destructive", title: "Error", description: result.message });
       }
@@ -191,7 +201,7 @@ export default function DashboardPage() {
               <CardDescription>{isLoading ? "Loading..." : weatherData?.location || "Set location in profile"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                {isLoading ? (<div className="text-center"><p>Loading live weather...</p></div>) : weatherData ? (
+                {isLoading && !weatherData ? (<div className="text-center"><p>Loading live weather...</p></div>) : weatherData ? (
                 <>
                   <div className="text-center">
                       <p className="text-6xl font-bold">{Math.round(weatherData.temperature)}°C</p>

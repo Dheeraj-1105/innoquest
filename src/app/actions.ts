@@ -35,7 +35,10 @@ async function getFarmerProfile(userId: string) {
 }
 
 // Helper to get live weather data from OpenWeatherMap API
-async function getWeatherData(location: string = 'pune') {
+export async function getWeather(userId: string) {
+  const farmerProfile = await getFarmerProfile(userId);
+  const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
+  
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey) {
     console.warn("OpenWeather API key is not set. Using mock weather data.");
@@ -97,14 +100,11 @@ export async function getAiAdvice(
   }
 
   try {
-    const farmerProfile = await getFarmerProfile(userId);
-    const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
-    
-    const [weatherData, marketData] = await Promise.all([
-      getWeatherData(location),
+    const [farmerProfile, marketData] = await Promise.all([
+      getFarmerProfile(userId),
       getMarketData()
     ]);
-
+    
     const aiInput: ChatAssistantInput = {
       query: queryText,
       language,
@@ -114,17 +114,10 @@ export async function getAiAdvice(
         cropsGrown: farmerProfile.cropsGrown,
         preferredLanguage: farmerProfile.preferredLanguage,
       } : undefined,
-      weather: weatherData ? {
-        temperature: weatherData.temperature,
-        humidity: weatherData.humidity,
-        rainfall: weatherData.rainfall,
-      } : undefined,
       market: marketData.length > 0 ? marketData.map(md => ({ cropName: md.cropName, pricePerKg: md.pricePerKg })) : undefined,
     };
     
-    if (!aiInput.weather) {
-      aiInput.weather = { temperature: 28, humidity: 75, rainfall: 0.5 };
-    }
+    // Fallback data in case market data is empty
     if (!aiInput.market || aiInput.market.length === 0) {
        aiInput.market = [{ cropName: 'Tomato', pricePerKg: 45 }];
     }
@@ -179,16 +172,17 @@ export async function getAiDiagnosisForCrop(
 }
 
 export async function getDashboardData(userId: string) {
-    const farmerProfile = await getFarmerProfile(userId);
-    const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
-    
-    const weatherData = await getWeatherData(location);
+    const weatherData = await getWeather(userId);
 
     if (!weatherData) {
       return { weatherData: null, insights: null, marketData: [] };
     }
+    
+    const [marketData, farmerProfile] = await Promise.all([
+      getMarketData(),
+      getFarmerProfile(userId)
+    ]);
 
-    const marketData = await getMarketData();
 
     const insights = await getDashboardInsights({
       location: weatherData.location,
