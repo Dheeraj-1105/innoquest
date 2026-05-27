@@ -105,7 +105,8 @@ export async function getAiAdvice(
   };
 
   try {
-    return await chatAssistant(aiInput);
+    const result = await chatAssistant(aiInput);
+    return result;
   } catch (error: any) {
     console.error('chatAssistant error:', error);
     throw new Error(`AI error: ${error.message}`);

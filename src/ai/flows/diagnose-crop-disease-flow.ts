@@ -4,8 +4,8 @@
  * @fileOverview A flow to diagnose crop diseases from an image.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 
 const DiagnoseCropDiseaseInputSchema = z.object({
   photoDataUri: z
@@ -26,14 +26,15 @@ export type DiagnoseCropDiseaseOutput = z.infer<typeof DiagnoseCropDiseaseOutput
 const diagnoseCropDiseasePrompt = ai.definePrompt({
   name: 'diagnoseCropDiseasePrompt',
   model: 'googleai/gemini-1.5-flash',
-  input: {schema: DiagnoseCropDiseaseInputSchema},
-  output: {schema: DiagnoseCropDiseaseOutputSchema},
-  prompt: `You are an expert plant pathologist. Identify the disease in the image and provide actionable recommendations in {{{language}}}.
+  input: { schema: DiagnoseCropDiseaseInputSchema },
+  output: { schema: DiagnoseCropDiseaseOutputSchema },
+  prompt: `You are an expert plant pathologist. 
+Identify the disease in the image and provide actionable recommendations in {{{language}}}.
 
 Crop Image: {{media url=photoDataUri}}`,
 });
 
 export async function diagnoseCropDisease(input: DiagnoseCropDiseaseInput): Promise<DiagnoseCropDiseaseOutput> {
-  const {output} = await diagnoseCropDiseasePrompt(input);
+  const { output } = await diagnoseCropDiseasePrompt(input);
   return output!;
 }

@@ -14,15 +14,12 @@ import {
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import Link from "next/link";
 import { collection, addDoc, serverTimestamp, query, orderBy, Timestamp } from "firebase/firestore";
 import { getAiAdvice, getAiDiagnosisForCrop, getAiAdviceFromVoice } from "../actions";
-import type { ChatAssistantOutput } from "@/ai/flows/chat-assistant-flow";
-import type { DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease-flow";
 
 type MessageContent =
   | string
@@ -104,13 +101,8 @@ export function ChatInterface() {
     setIsLoading(true);
 
     try {
-      // 1. Save user message to history
       await addMessageToDb("user", userInput);
-      
-      // 2. Call AI Server Action
       const response = await getAiAdvice(userInput, language, user.uid);
-      
-      // 3. Save assistant response to history
       await addMessageToDb("assistant", response);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Assistant Error", description: e.message });
