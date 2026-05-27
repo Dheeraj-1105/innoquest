@@ -66,7 +66,8 @@ export function AuthForm() {
             name: user.email?.split('@')[0] || 'Farmer',
             location: '',
             cropsGrown: [],
-            preferredLanguage: 'en'
+            preferredLanguage: 'en',
+            phone: ''
           };
           
           // Direct client-side creation of profile using standard Firebase SDK
