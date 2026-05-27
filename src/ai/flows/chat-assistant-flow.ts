@@ -3,16 +3,16 @@
 /**
  * @fileOverview AI-powered chat assistant for farmers.
  *
- * - chatAssistantFlow - A flow that handles farmer questions and provides AI-powered advice in their local language.
- * - ChatAssistantInput - The input type for the chatAssistantFlow function.
- * - ChatAssistantOutput - The return type for the chatAssistantFlow function.
+ * - chatAssistant - A function that handles farmer questions and provides AI-powered advice.
+ * - ChatAssistantInput - The input type for the chatAssistant function.
+ * - ChatAssistantOutput - The return type for the chatAssistant function.
  */
 
 import {ai} from '@/ai/genkit';
 import { governmentSchemes } from '@/lib/schemes';
 import {z} from 'genkit';
 
-// TOOL DEFINITION: This gives the AI the ability to look up scheme info.
+// TOOL DEFINITION: Look up government agricultural schemes.
 const getSchemeInfo = ai.defineTool(
   {
     name: 'getSchemeInfo',
@@ -37,7 +37,6 @@ const getSchemeInfo = ai.defineTool(
     return relevantSchemes.length > 0 ? relevantSchemes.map(s => ({...s, name: s.title })) : [];
   }
 );
-
 
 const FarmerProfileSchema = z.object({
   name: z.string().optional(),
@@ -67,58 +66,34 @@ const ChatAssistantInputSchema = z.object({
 export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
 
 const ChatAssistantOutputSchema = z.object({
-  advice: z.string().describe('The AI-powered advice for the farmer. If providing a link, ensure it is a valid, clickable URL.'),
+  advice: z.string().describe('The AI-powered advice for the farmer.'),
   language: z.string().describe('The language in which the advice is provided.'),
-  weather: z.string().optional().describe('A summary of the weather information used for the advice.'),
-  market: z.string().optional().describe('A summary of the market information used for the advice.'),
+  weather: z.string().optional().describe('A summary of weather used.'),
+  market: z.string().optional().describe('A summary of market used.'),
 });
 export type ChatAssistantOutput = z.infer<typeof ChatAssistantOutputSchema>;
 
-export async function chatAssistant(input: ChatAssistantInput): Promise<ChatAssistantOutput> {
-  const {output} = await chatAssistantPrompt(input);
-  
-  if (input.weather && !output!.weather) {
-    output!.weather = `${input.weather.temperature}°C, ${input.weather.humidity}% humidity.`;
-  }
-  if (input.market && !output!.market) {
-    const crop = input.market[0];
-    if (crop) {
-      output!.market = `${crop.cropName} at ₹${crop.pricePerKg}/kg.`;
-    }
-  }
-
-  return output!;
-}
-
 const chatAssistantPrompt = ai.definePrompt({
   name: 'chatAssistantPrompt',
+  model: 'googleai/gemini-1.5-flash',
   input: {schema: ChatAssistantInputSchema},
   output: {schema: ChatAssistantOutputSchema},
   tools: [getSchemeInfo],
-  prompt: `You are an expert AI agricultural advisor. Your goal is to provide smart, multilingual, and context-aware advice to farmers.
-
-You MUST use the provided real-time context and tools to give the best possible advice. Respond in the farmer's preferred language.
+  prompt: `You are an expert AI agricultural advisor. Use the provided context to advise the farmer in their language: {{{language}}}.
 
 CONTEXT:
 {{#if farmerProfile}}
-- Farmer Profile:
-  - Name: {{farmerProfile.name}}
-  - Location: {{farmerProfile.location}}
-  - Main Crops: {{#each farmerProfile.cropsGrown}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
-  - Preferred Language: {{{language}}}
+- Farmer: {{farmerProfile.name}} in {{farmerProfile.location}}. Crops: {{#each farmerProfile.cropsGrown}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
 {{/if}}
 
 {{#if weather}}
-- Current Weather in {{farmerProfile.location}}:
-  - Temperature: {{weather.temperature}}°C
-  - Humidity: {{weather.humidity}}%
-  - Rainfall: {{weather.rainfall}}mm
+- Weather: {{weather.temperature}}°C, {{weather.humidity}}% humidity, {{weather.rainfall}}mm rain.
 {{/if}}
 
 {{#if market}}
-- Current Market Prices (per Kg):
+- Market:
   {{#each market}}
-  - {{this.cropName}}: ₹{{this.pricePerKg}}
+  - {{this.cropName}}: ₹{{this.pricePerKg}}/kg
   {{/each}}
 {{/if}}
 
@@ -126,17 +101,13 @@ FARMER'S QUERY:
 "{{{query}}}"
 
 INSTRUCTIONS:
-1. Analyze the farmer's query and all the context provided.
-2. **SCHEME HELPER:** If the farmer's query is about government schemes, loans, insurance, or subsidies, you MUST use the 'getSchemeInfo' tool to find relevant schemes.
-   - Based on the tool's output, explain the scheme's benefits and eligibility in simple terms.
-   - At the end of your explanation, you MUST provide the application link from the tool's output. The link must be a valid, full URL. Example: "You can apply here: https://pmkisan.gov.in/".
-3. If the query is about crop suitability, use weather and market data to make a recommendation.
-4. If the query is about selling crops, use the market data to advise.
-5. If the query is about pests or diseases, consider the weather conditions.
-6. Generate a summary of the weather and market data you used in the 'weather' and 'market' output fields.
-7. The final 'advice' field MUST be in the farmer's preferred language: {{{language}}}.
-
-Example for a farmer growing rice in Telangana with high humidity and good prices: "The weather is cloudy and humidity is high. Current rice market price is ₹52/kg. Advise if this crop is ideal for this week and suggest preventive pest measures."
-Your response should be structured and helpful.
+1. Use 'getSchemeInfo' if the query is about government support, loans, or schemes.
+2. Provide specific, actionable advice based on weather and market data if available.
+3. Your final 'advice' must be in {{{language}}}.
 `,
 });
+
+export async function chatAssistant(input: ChatAssistantInput): Promise<ChatAssistantOutput> {
+  const {output} = await chatAssistantPrompt(input);
+  return output!;
+}

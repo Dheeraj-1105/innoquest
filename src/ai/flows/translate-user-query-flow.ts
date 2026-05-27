@@ -1,46 +1,33 @@
 'use server';
 
 /**
- * @fileOverview A flow to translate user queries to English for better processing.
- *
- * - translateUserQuery - A function that translates the user's query to English.
- * - TranslateUserQueryInput - The input type for the translateUserQuery function.
- * - TranslateUserQueryOutput - The return type for the translateUserQuery function.
+ * @fileOverview Translate native language query to English.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const TranslateUserQueryInputSchema = z.object({
-  query: z.string().describe('The user query in their native language.'),
-  sourceLanguage: z.string().describe('The ISO 639-1 code of the source language.'),
+  query: z.string(),
+  sourceLanguage: z.string(),
 });
 export type TranslateUserQueryInput = z.infer<typeof TranslateUserQueryInputSchema>;
 
 const TranslateUserQueryOutputSchema = z.object({
-  translatedQuery: z.string().describe('The translated user query in English.'),
+  translatedQuery: z.string(),
 });
 export type TranslateUserQueryOutput = z.infer<typeof TranslateUserQueryOutputSchema>;
 
-export async function translateUserQuery(input: TranslateUserQueryInput): Promise<TranslateUserQueryOutput> {
-  return translateUserQueryFlow(input);
-}
-
-const translateUserQueryPrompt = ai.definePrompt({
+const translatePrompt = ai.definePrompt({
   name: 'translateUserQueryPrompt',
+  model: 'googleai/gemini-1.5-flash',
   input: {schema: TranslateUserQueryInputSchema},
   output: {schema: TranslateUserQueryOutputSchema},
-  prompt: `Translate the following user query from {{sourceLanguage}} to English.\n\nUser Query: {{{query}}}`,
+  prompt: `Translate from {{sourceLanguage}} to English:
+"{{{query}}}"`,
 });
 
-const translateUserQueryFlow = ai.defineFlow(
-  {
-    name: 'translateUserQueryFlow',
-    inputSchema: TranslateUserQueryInputSchema,
-    outputSchema: TranslateUserQueryOutputSchema,
-  },
-  async input => {
-    const {output} = await translateUserQueryPrompt(input);
-    return output!;
-  }
-);
+export async function translateUserQuery(input: TranslateUserQueryInput): Promise<TranslateUserQueryOutput> {
+  const {output} = await translatePrompt(input);
+  return output!;
+}
