@@ -1,7 +1,5 @@
 
 'use server';
-import { config } from 'dotenv';
-config();
 
 import {
   chatAssistant,
@@ -39,20 +37,25 @@ export async function getWeather(userId: string) {
   const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
   const apiKey = process.env.OPENWEATHER_API_KEY;
 
+  // Standard fallback for when API key is not configured or fails
+  const mockWeather = {
+    temperature: 28, humidity: 75, rainfall: 0.5,
+    location: 'Pune (Mock)', weatherCondition: 'Clear'
+  };
+
   if (!apiKey || apiKey === 'YOUR_OPENWEATHER_API_KEY') {
-    return {
-      temperature: 28, humidity: 75, rainfall: 0.5,
-      location: 'Pune (Mock)', weatherCondition: 'Haze'
-    };
+    return mockWeather;
   }
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3-second timeout
+
     const url = `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}&units=metric`;
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) return {
-      temperature: 28, humidity: 75, rainfall: 0.5,
-      location: 'Pune (Mock)', weatherCondition: 'Haze'
-    };
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return mockWeather;
     const data = await response.json();
     return {
       temperature: data.main.temp,
@@ -63,10 +66,7 @@ export async function getWeather(userId: string) {
     };
   } catch (error) {
     console.error('getWeather error:', error);
-    return {
-      temperature: 28, humidity: 75, rainfall: 0.5,
-      location: 'Pune (Mock)', weatherCondition: 'Haze'
-    };
+    return mockWeather;
   }
 }
 
@@ -88,10 +88,11 @@ export async function getAiAdvice(
 ): Promise<ChatAssistantOutput> {
   if (!queryText) throw new Error('Query is empty');
 
+  // Fetch context in parallel but with error boundaries
   const [farmerProfile, marketData, weather] = await Promise.all([
-    getFarmerProfile(userId),
-    getMarketData(),
-    getWeather(userId)
+    getFarmerProfile(userId).catch(() => null),
+    getMarketData().catch(() => []),
+    getWeather(userId).catch(() => ({ temperature: 28, humidity: 75, rainfall: 0 }))
   ]);
 
   const aiInput: ChatAssistantInput = {
@@ -108,15 +109,14 @@ export async function getAiAdvice(
       humidity: weather.humidity,
       rainfall: weather.rainfall,
     } : undefined,
-    market: marketData.map(md => ({ cropName: md.cropName, pricePerKg: md.pricePerKg })),
+    market: marketData.map((md: any) => ({ cropName: md.cropName, pricePerKg: md.pricePerKg })),
   };
 
   try {
-    const result = await chatAssistant(aiInput);
-    return result;
+    return await chatAssistant(aiInput);
   } catch (error: any) {
-    console.error('chatAssistant error:', error);
-    throw new Error(`AI error: ${error.message}`);
+    console.error('chatAssistant flow failure:', error);
+    throw new Error(error.message || 'AI assistant encountered an error.');
   }
 }
 
@@ -126,7 +126,7 @@ export async function getAiAdviceFromVoice(
   userId: string
 ): Promise<ChatAssistantOutput> {
   const { transcription } = await transcribeVoiceToText({ audioDataUri });
-  if (!transcription) throw new Error('Transcription failed');
+  if (!transcription) throw new Error('Transcription failed. Please try again.');
   return await getAiAdvice(transcription, language, userId);
 }
 
@@ -134,7 +134,12 @@ export async function getAiDiagnosisForCrop(
   photoDataUri: string,
   language: string
 ): Promise<DiagnoseCropDiseaseOutput> {
-  return await diagnoseCropDisease({ photoDataUri, language });
+  try {
+    return await diagnoseCropDisease({ photoDataUri, language });
+  } catch (error: any) {
+    console.error('diagnoseCropDisease error:', error);
+    throw new Error('Failed to analyze the image. Please ensure the photo is clear.');
+  }
 }
 
 export async function getDashboardData(userId: string) {
@@ -144,18 +149,23 @@ export async function getDashboardData(userId: string) {
     getFarmerProfile(userId)
   ]);
 
-  if (!weatherData) return { weatherData: null, insights: null, marketData: [] };
-
-  const insights = await getDashboardInsights({
-    location: weatherData.location,
-    weather: {
-      temperature: weatherData.temperature,
-      humidity: weatherData.humidity,
-      rainfall: weatherData.rainfall,
-      weatherCondition: weatherData.weatherCondition,
-    },
-    crops: farmerProfile?.cropsGrown || []
-  });
+  let insights = null;
+  if (weatherData) {
+    try {
+      insights = await getDashboardInsights({
+        location: weatherData.location,
+        weather: {
+          temperature: weatherData.temperature,
+          humidity: weatherData.humidity,
+          rainfall: weatherData.rainfall,
+          weatherCondition: weatherData.weatherCondition,
+        },
+        crops: farmerProfile?.cropsGrown || []
+      });
+    } catch (e) {
+      console.error('Insights generation failed', e);
+    }
+  }
 
   return { weatherData, insights, marketData };
 }
@@ -176,7 +186,7 @@ export async function seedMarketData(userId: string) {
     });
 
     await batch.commit();
-    return { success: true, message: "Seeded market data!" };
+    return { success: true, message: "Market data seeded with AI suggestions!" };
   } catch (error: any) {
     return { success: false, message: error.message };
   }

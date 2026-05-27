@@ -81,7 +81,7 @@ const chatAssistantPrompt = ai.definePrompt({
   input: { schema: ChatAssistantInputSchema },
   output: { schema: ChatAssistantOutputSchema },
   tools: [getSchemeInfo],
-  prompt: `You are an expert AI agricultural advisor. 
+  prompt: `You are an expert AI agricultural advisor named "AgriAdvisor". 
 Provide actionable advice in the requested language: {{{language}}}.
 
 CONTEXT:
@@ -104,13 +104,16 @@ FARMER'S QUERY:
 "{{{query}}}"
 
 INSTRUCTIONS:
-1. Use 'getSchemeInfo' if the query is about government support or loans.
-2. Provide specific advice for their crops and current weather.
-3. Keep the response helpful, practical, and empathetic.
+1. Use 'getSchemeInfo' if the query is about government support, subsidies, or loans.
+2. Provide specific advice for their crops and current weather conditions.
+3. Keep the response helpful, practical, and empathetic. Use Markdown for formatting.
 `,
 });
 
 export async function chatAssistant(input: ChatAssistantInput): Promise<ChatAssistantOutput> {
   const { output } = await chatAssistantPrompt(input);
-  return output!;
+  if (!output) {
+    throw new Error('AI failed to generate a response.');
+  }
+  return output;
 }
