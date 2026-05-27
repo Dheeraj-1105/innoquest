@@ -34,7 +34,6 @@ const getSchemeInfo = ai.defineTool(
         scheme.keywords.some(schemeKeyword => schemeKeyword.includes(searchKeyword))
       )
     );
-    // The tool needs to return data matching the output schema, which includes `name` not `title`
     return relevantSchemes.length > 0 ? relevantSchemes.map(s => ({...s, name: s.title })) : [];
   }
 );
@@ -76,7 +75,19 @@ const ChatAssistantOutputSchema = z.object({
 export type ChatAssistantOutput = z.infer<typeof ChatAssistantOutputSchema>;
 
 export async function chatAssistant(input: ChatAssistantInput): Promise<ChatAssistantOutput> {
-  return chatAssistantFlow(input);
+  const {output} = await chatAssistantPrompt(input);
+  
+  if (input.weather && !output!.weather) {
+    output!.weather = `${input.weather.temperature}°C, ${input.weather.humidity}% humidity.`;
+  }
+  if (input.market && !output!.market) {
+    const crop = input.market[0];
+    if (crop) {
+      output!.market = `${crop.cropName} at ₹${crop.pricePerKg}/kg.`;
+    }
+  }
+
+  return output!;
 }
 
 const chatAssistantPrompt = ai.definePrompt({
@@ -129,27 +140,3 @@ Example for a farmer growing rice in Telangana with high humidity and good price
 Your response should be structured and helpful.
 `,
 });
-
-const chatAssistantFlow = ai.defineFlow(
-  {
-    name: 'chatAssistantFlow',
-    inputSchema: ChatAssistantInputSchema,
-    outputSchema: ChatAssistantOutputSchema,
-  },
-  async input => {
-    const {output} = await chatAssistantPrompt(input);
-    
-    // The model should generate the summaries, but provide a fallback just in case.
-    if (input.weather && !output!.weather) {
-      output!.weather = `${input.weather.temperature}°C, ${input.weather.humidity}% humidity.`;
-    }
-    if (input.market && !output!.market) {
-      const crop = input.market[0];
-      if (crop) {
-        output!.market = `${crop.cropName} at ₹${crop.pricePerKg}/kg.`;
-      }
-    }
-
-    return output!;
-  }
-);
