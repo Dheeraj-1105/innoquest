@@ -1,11 +1,10 @@
-
 "use client";
 
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp, ArrowUpRight } from "lucide-react";
+import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp, ArrowUpRight, Loader2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -24,7 +23,6 @@ import { collection, addDoc, serverTimestamp, query, orderBy, Timestamp } from "
 import { getAiAdvice, getAiDiagnosisForCrop, getAiAdviceFromVoice } from "../actions";
 import type { ChatAssistantOutput } from "@/ai/flows/chat-assistant-flow";
 import type { DiagnoseCropDiseaseOutput } from "@/ai/flows/diagnose-crop-disease-flow";
-
 
 type MessageContent =
   | string
@@ -51,14 +49,16 @@ export function ChatInterface() {
   const [input, setInput] = useState("");
   const [language, setLanguage] = useState("en");
   const [isRecording, setIsRecording] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const { toast } = useToast();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
-  const [isLoading, setIsLoading] = useState(false);
 
   const advisoriesRef = useMemoFirebase(
     () => (firestore && user ? collection(firestore, `farmers/${user.uid}/advisories`) : null),
@@ -73,44 +73,77 @@ export function ChatInterface() {
   const { data: messages, isLoading: isHistoryLoading } = useCollection<Message>(advisoriesQuery);
 
   useEffect(() => {
-    if(scrollAreaRef.current){
+    if (scrollAreaRef.current) {
       const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
       if (viewport) {
         viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' });
       }
     }
-  }, [messages]);
-
+  }, [messages, isLoading]);
 
   const addMessageToDb = async (role: 'user' | 'assistant', content: MessageContent) => {
-    if (!advisoriesRef) return;
+    if (!advisoriesRef || !user) return;
     try {
-        await addDoc(advisoriesRef, {
-            role,
-            content,
-            timestamp: serverTimestamp(),
-            language, // Keep language for context
-            farmerId: user?.uid,
-        });
+      await addDoc(advisoriesRef, {
+        role,
+        content,
+        timestamp: serverTimestamp(),
+        language,
+        farmerId: user.uid,
+      });
     } catch (error) {
-        console.error("Error adding message to Firestore:", error);
-        toast({
-            variant: "destructive",
-            title: "Database Error",
-            description: "Could not save your message. Please try again.",
-        });
+      console.error("Database error:", error);
     }
   };
 
-  const handleAiResponse = async (response: ChatAssistantOutput | DiagnoseCropDiseaseOutput) => {
-    await addMessageToDb("assistant", response);
-  };
-  
-  const handleStartRecording = async () => {
-    if (!user) {
-        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to use the voice assistant.' });
-        return;
+  const handleSendMessage = async () => {
+    if (!input.trim() || isLoading || !user) return;
+
+    const userInput = input;
+    setInput("");
+    setIsLoading(true);
+
+    try {
+      // 1. Save user message to history
+      await addMessageToDb("user", userInput);
+      
+      // 2. Call AI Server Action
+      const response = await getAiAdvice(userInput, language, user.uid);
+      
+      // 3. Save assistant response to history
+      await addMessageToDb("assistant", response);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Assistant Error", description: e.message });
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = async () => {
+      const base64Image = reader.result as string;
+      setIsLoading(true);
+      try {
+        await addMessageToDb("user", { image: base64Image });
+        const response = await getAiDiagnosisForCrop(base64Image, language);
+        await addMessageToDb("assistant", response);
+      } catch (e: any) {
+        toast({ variant: "destructive", title: "Diagnosis Error", description: e.message });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    event.target.value = '';
+  };
+
+  const handleStartRecording = async () => {
+    if (!user) return;
     if (isRecording) {
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
@@ -121,10 +154,7 @@ export function ChatInterface() {
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
-      };
-
+      mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         const reader = new FileReader();
@@ -132,12 +162,12 @@ export function ChatInterface() {
         reader.onloadend = async () => {
           const base64Audio = reader.result as string;
           setIsLoading(true);
-          await addMessageToDb("user", { audio: base64Audio });
           try {
+            await addMessageToDb("user", { audio: base64Audio });
             const response = await getAiAdviceFromVoice(base64Audio, language, user.uid);
-            await handleAiResponse(response);
-          } catch(e: any) {
-            toast({ variant: "destructive", title: "AI Error", description: e.message });
+            await addMessageToDb("assistant", response);
+          } catch (e: any) {
+            toast({ variant: "destructive", title: "Voice Error", description: e.message });
           } finally {
             setIsLoading(false);
           }
@@ -146,282 +176,153 @@ export function ChatInterface() {
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
-      toast({ title: "Recording started...", description: "Click the mic again to stop." });
     } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "Microphone Error",
-        description: "Could not access microphone. Please check permissions.",
-      });
+      toast({ variant: "destructive", title: "Mic Error", description: "Access denied." });
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!input.trim() || isLoading) return;
-    if (!user) {
-        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to chat.' });
-        return;
-    }
-
-    const userInput = input;
-    setInput("");
-    setIsLoading(true);
-    await addMessageToDb("user", userInput);
-
-    try {
-      const response = await getAiAdvice(userInput, language, user.uid);
-      await handleAiResponse(response);
-    } catch(e: any) {
-       toast({ variant: "destructive", title: "AI Error", description: e.message });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!user) {
-        toast({ variant: 'destructive', title: 'Authentication Error', description: 'You must be logged in to upload an image.' });
-        return;
-    }
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = async () => {
-      const base64Image = reader.result as string;
-      setIsLoading(true);
-      await addMessageToDb("user", { image: base64Image });
-      try {
-        const response = await getAiDiagnosisForCrop(base64Image, language);
-        await handleAiResponse(response);
-      } catch(e: any) {
-        toast({ variant: "destructive", title: "AI Error", description: e.message });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    event.target.value = '';
-  };
-
-
-  const renderAdvice = (text: string) => {
+  const renderAdviceText = (text: string) => {
     const urlRegex = /(https?:\/\/[^\s"'<>`]+)/g;
-    const parts = text.split(urlRegex);
-
-    return parts.map((part, index) => {
-        if (part && part.match(urlRegex)) {
-            try {
-                const url = new URL(part);
-                return (
-                    <Button asChild variant="link" className="p-0 h-auto font-semibold -ml-1 inline-block align-baseline whitespace-normal break-words" key={index}>
-                        <Link href={url.href} target="_blank" rel="noopener noreferrer">
-                            Apply Here <ArrowUpRight className="w-4 h-4 ml-1 inline-block" />
-                        </Link>
-                    </Button>
-                );
-            } catch (e) {
-                return <span key={index}>{part}</span>;
-            }
-        }
-        if (part) {
-            return <span key={index}>{part.replace(/\\n/g, '\n')}</span>;
-        }
-        return null;
+    return text.split(urlRegex).map((part, i) => {
+      if (part.match(urlRegex)) {
+        return (
+          <Button asChild variant="link" className="p-0 h-auto font-semibold inline-flex" key={i}>
+            <Link href={part} target="_blank" rel="noopener noreferrer">
+              Apply <ArrowUpRight className="w-4 h-4 ml-1" />
+            </Link>
+          </Button>
+        );
+      }
+      return <span key={i}>{part}</span>;
     });
-}
+  };
 
-
-  const renderMessageContent = (content: MessageContent) => {
-    if (typeof content === "string") {
-      return <p>{content}</p>;
-    }
-    if (typeof content === 'object' && content && "image" in content) {
-      return <Image src={content.image} alt="Uploaded crop" width={200} height={200} className="rounded-lg" />;
-    }
-    if (typeof content === 'object' && content && "audio" in content) {
-        return <p><i>Voice message sent... waiting for transcription.</i></p>
-    }
-    if (typeof content === 'object' && content && "advice" in content) {
+  const renderContent = (content: MessageContent) => {
+    if (typeof content === "string") return <p className="whitespace-pre-wrap">{content}</p>;
+    if ("image" in content) return <Image src={content.image} alt="Crop" width={300} height={300} className="rounded-lg shadow-sm" />;
+    if ("audio" in content) return <p className="italic opacity-70">Voice message sent...</p>;
+    if ("advice" in content) {
       return (
-          <div className="space-y-4">
-              <div className="whitespace-pre-wrap">{renderAdvice(content.advice)}</div>
-              {(content.weather || content.market) && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-muted-foreground/20">
-                    {content.weather && (
-                        <Card className="bg-background/50 shadow-none border-none">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-0 pt-2">
-                                <CardTitle className="text-sm font-medium">Weather Context</CardTitle>
-                                <Cloud className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent className="p-0">
-                                <p className="text-sm text-muted-foreground">{content.weather}</p>
-                            </CardContent>
-                        </Card>
-                    )}
-                    {content.market && (
-                        <Card className="bg-background/50 shadow-none border-none">
-                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-0 pt-2">
-                                <CardTitle className="text-sm font-medium">Market Context</CardTitle>
-                                <BarChartHorizontal className="h-4 w-4 text-muted-foreground" />
-                            </CardHeader>
-                            <CardContent className="p-0">
-                                 <p className="text-sm text-muted-foreground">{content.market}</p>
-                            </CardContent>
-                        </Card>
-                    )}
+        <div className="space-y-4">
+          <div className="whitespace-pre-wrap">{renderAdviceText(content.advice)}</div>
+          {(content.weather || content.market) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-muted-foreground/20">
+              {content.weather && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Cloud className="w-4 h-4 shrink-0" /> <span>{content.weather}</span>
                 </div>
               )}
-          </div>
+              {content.market && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <BarChartHorizontal className="w-4 h-4 shrink-0" /> <span>{content.market}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       );
     }
-    if (typeof content === 'object' && content && "disease" in content) {
-        return (
-            <div className="space-y-2">
-                <h4 className="font-bold">Disease Identified: {content.disease}</h4>
-                <p className="font-semibold">Recommendation:</p>
-                <p className="whitespace-pre-wrap">{content.recommendation}</p>
-            </div>
-        )
+    if ("disease" in content) {
+      return (
+        <div className="space-y-2">
+          <h4 className="font-bold text-primary">Diagnosis: {content.disease}</h4>
+          <p className="text-sm opacity-90">{content.recommendation}</p>
+        </div>
+      );
     }
-
-    return <p><i>Unsupported message format.</i></p>;
+    return null;
   };
 
-  const DisplayMessages = () => {
-    if (isHistoryLoading && (!messages || messages.length === 0)) {
-      return (
-         <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
-           <Bot className="w-16 h-16 mb-4 animate-pulse" />
-           <h3 className="text-lg font-semibold">Loading Chat History...</h3>
-           <p>Please wait a moment.</p>
-         </div>
-      );
-    }
-    if (!messages || messages.length === 0) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-8">
-           <Bot className="w-16 h-16 mb-4" />
-           <h3 className="text-lg font-semibold">Welcome to AgriAdvisor AI</h3>
-           <p className="max-w-md">{user ? "You can ask me about crop diseases, weather, market prices, and government schemes." : "Please log in to start a conversation."}</p>
-       </div>
-      )
-    }
-    return (
-      <div className="space-y-6">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn(
-              "flex items-start gap-3",
-              message.role === "user" ? "justify-end" : "justify-start"
-            )}
-          >
-            {message.role === 'assistant' && (
-              <Avatar>
-                <AvatarFallback><Bot /></AvatarFallback>
-              </Avatar>
-            )}
-            <div
-              className={cn(
-                "max-w-2xl rounded-lg px-4 py-3 shadow-md",
-                message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary"
-              )}
-            >
-              {renderMessageContent(message.content)}
-            </div>
-            {message.role === 'user' && (
-              <Avatar>
-                <AvatarFallback>{user?.email?.[0].toUpperCase() || <User />}</AvatarFallback>
-              </Avatar>
-            )}
-          </div>
-        ))}
-         {isLoading && (
-          <div className="flex items-start gap-3 justify-start">
-             <Avatar>
-                <AvatarFallback><Bot /></AvatarFallback>
-              </Avatar>
-            <div className="bg-secondary rounded-lg px-4 py-3 shadow-md">
-              <div className="flex items-center space-x-2">
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.3s]"></div>
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse [animation-delay:-0.15s]"></div>
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-pulse"></div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col h-full bg-card p-4 rounded-lg shadow-lg">
-      <div className="flex items-center justify-between mb-4 border-b pb-4">
-        <h2 className="text-2xl font-headline font-bold">AI Field Agent</h2>
+    <div className="flex flex-col h-full bg-card rounded-xl shadow-xl overflow-hidden border">
+      <div className="flex items-center justify-between p-4 bg-primary/5 border-b">
         <div className="flex items-center gap-2">
-          <Languages className="w-5 h-5 text-muted-foreground" />
+          <Bot className="w-6 h-6 text-primary" />
+          <h2 className="text-xl font-headline font-bold">Field Assistant</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <Languages className="w-4 h-4 text-muted-foreground" />
           <Select value={language} onValueChange={setLanguage} disabled={!user}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="Language" />
+            <SelectTrigger className="w-[110px] h-8 text-xs">
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {languages.map((lang) => (
-                <SelectItem key={lang.value} value={lang.value}>
-                  {lang.label}
-                </SelectItem>
-              ))}
+              {languages.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      <ScrollArea className="flex-grow mb-4 pr-4 -mr-4" ref={scrollAreaRef}>
-        <div className="p-1">
-          <DisplayMessages />
-        </div>
+      <ScrollArea className="flex-grow p-4" ref={scrollAreaRef}>
+        {!user ? (
+          <div className="flex flex-col items-center justify-center h-full text-center p-8 text-muted-foreground">
+            <User className="w-12 h-12 mb-4" />
+            <p>Please log in to chat with your agent.</p>
+          </div>
+        ) : isHistoryLoading ? (
+          <div className="flex justify-center p-8"><Loader2 className="animate-spin text-primary" /></div>
+        ) : messages && messages.length > 0 ? (
+          <div className="space-y-6">
+            {messages.map(m => (
+              <div key={m.id} className={cn("flex items-start gap-3", m.role === "user" ? "flex-row-reverse" : "flex-row")}>
+                <Avatar className="w-8 h-8 border shadow-sm">
+                  <AvatarFallback className={m.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"}>
+                    {m.role === "user" ? (user?.email?.[0].toUpperCase() || "U") : <Bot className="w-4 h-4" />}
+                  </AvatarFallback>
+                </Avatar>
+                <div className={cn("max-w-[85%] rounded-2xl px-4 py-3 shadow-sm", m.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary/40 border")}>
+                  {renderContent(m.content)}
+                </div>
+              </div>
+            ))}
+            {isLoading && (
+              <div className="flex items-start gap-3">
+                <Avatar className="w-8 h-8 border shadow-sm"><AvatarFallback><Bot className="w-4 h-4" /></AvatarFallback></Avatar>
+                <div className="bg-secondary/40 border rounded-2xl px-4 py-3 flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" />
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce [animation-delay:0.2s]" />
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce [animation-delay:0.4s]" />
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center p-12 text-muted-foreground">
+            <Bot className="w-16 h-16 mx-auto mb-4 opacity-20" />
+            <h3 className="text-lg font-bold">Namaste!</h3>
+            <p className="text-sm">Ask me about crops, pests, weather, or government schemes.</p>
+          </div>
+        )}
       </ScrollArea>
 
-      <div className="flex items-center gap-2 pt-4 border-t">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={user ? "Type your question or use the mic/image buttons..." : "Please log in to chat"}
-          className="flex-grow resize-none"
-          rows={1}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSendMessage();
-            }
-          }}
-          disabled={!user || isLoading}
-        />
-        <Button
-          onClick={handleSendMessage}
-          disabled={!input.trim() || !user || isLoading}
-          size="icon"
-        >
-          <Send className="w-5 h-5" />
-          <span className="sr-only">Send Message</span>
-        </Button>
-        <Button onClick={handleStartRecording} disabled={!user || isLoading} size="icon" variant={isRecording ? "destructive" : "outline"}>
-          <Mic className="w-5 h-5" />
-           <span className="sr-only">Record Voice</span>
-        </Button>
-        <Button onClick={() => fileInputRef.current?.click()} disabled={!user || isLoading} size="icon" variant="outline">
-          <ImageUp className="w-5 h-5" />
-           <span className="sr-only">Upload Image</span>
-        </Button>
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleImageUpload}
-          className="hidden"
-          accept="image/*"
-        />
+      <div className="p-4 bg-background border-t space-y-4">
+        <div className="flex items-center gap-2">
+          <Textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={user ? "Ask anything..." : "Login to start"}
+            className="flex-grow min-h-[44px] h-[44px] max-h-[120px] resize-none py-2"
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            disabled={!user || isLoading}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="icon" onClick={handleSendMessage} disabled={!input.trim() || isLoading} className="rounded-full shadow-md">
+              <Send className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant={isRecording ? "destructive" : "outline"} onClick={handleStartRecording} disabled={isLoading} className="rounded-full">
+              <Mic className="w-4 h-4" />
+            </Button>
+            <Button size="icon" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="rounded-full">
+              <ImageUp className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+        <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
       </div>
     </div>
   );

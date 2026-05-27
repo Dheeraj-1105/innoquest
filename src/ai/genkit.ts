@@ -1,16 +1,18 @@
 'use server';
 
-import {genkit} from 'genkit';
-import {googleAI} from '@genkit-ai/google-genai';
+import { genkit } from 'genkit';
+import { googleAI } from '@genkit-ai/google-genai';
+
+/**
+ * @fileOverview Genkit initialization and configuration.
+ * Using gemini-1.5-flash as the stable default model for the agricultural advisor.
+ */
 
 export const ai = genkit({
   plugins: [
     googleAI({
-      // The default model was previously configured incorrectly at the top level.
-      // Placing it here ensures it's correctly used by the Google AI plugin.
-      defaultModel: 'gemini-1.5-flash-latest',
+      // defaultModel is correctly placed inside the plugin configuration
+      defaultModel: 'gemini-1.5-flash',
     }),
   ],
-  // This top-level model property is not the correct way to set the default
-  // for the plugin and has been removed.
 });

@@ -1,4 +1,3 @@
-
 'use server';
 import { config } from 'dotenv';
 config();
@@ -16,6 +15,11 @@ import {
 import { suggestCrops } from '@/ai/flows/suggest-crops-flow';
 import { initializeServerApp } from '@/firebase/server-init';
 import { getDashboardInsights } from '@/ai/flows/get-dashboard-insights-flow';
+
+/**
+ * @fileOverview Server Actions for AgriAdvisor AI.
+ * Handles communication between the client and Genkit AI flows.
+ */
 
 // Helper to get farmer profile from Firestore using Admin SDK
 async function getFarmerProfile(userId: string) {
@@ -41,7 +45,6 @@ export async function getWeather(userId: string) {
   
   const apiKey = process.env.OPENWEATHER_API_KEY;
   if (!apiKey) {
-    console.warn("OpenWeather API key is not set. Using mock weather data.");
     return {
       temperature: 28,
       humidity: 75,
@@ -54,10 +57,7 @@ export async function getWeather(userId: string) {
 
   try {
     const response = await fetch(url, { cache: 'no-store' }); 
-    if (!response.ok) {
-      console.error(`Error fetching weather data for ${location}: ${response.statusText}`);
-      return null;
-    }
+    if (!response.ok) return null;
     const data = await response.json();
     return {
       temperature: data.main.temp,
@@ -72,7 +72,7 @@ export async function getWeather(userId: string) {
   }
 }
 
-// Helper to get latest market data from Firestore using Admin SDK
+// Helper to get latest market data from Firestore
 async function getMarketData() {
   try {
     const { firestore } = await initializeServerApp();
@@ -82,7 +82,6 @@ async function getMarketData() {
     if (!marketSnapshot.empty) {
       return marketSnapshot.docs.map(doc => doc.data());
     }
-    console.log("No market data found in Firestore.");
     return [];
   } catch (error) {
     console.error('Error fetching market data:', error);
@@ -95,9 +94,7 @@ export async function getAiAdvice(
   language: string,
   userId: string
 ): Promise<ChatAssistantOutput> {
-  if (!queryText) {
-    throw new Error('Query cannot be empty.');
-  }
+  if (!queryText) throw new Error('Query cannot be empty.');
 
   try {
     const [farmerProfile, marketData] = await Promise.all([
@@ -117,16 +114,15 @@ export async function getAiAdvice(
       market: marketData.length > 0 ? marketData.map(md => ({ cropName: md.cropName, pricePerKg: md.pricePerKg })) : undefined,
     };
     
-    // Fallback data in case market data is empty
+    // Fallback data if no market data is present
     if (!aiInput.market || aiInput.market.length === 0) {
        aiInput.market = [{ cropName: 'Tomato', pricePerKg: 45 }];
     }
 
-    const response = await chatAssistant(aiInput);
-    return response;
+    return await chatAssistant(aiInput);
   } catch (error: any) {
-    console.error('Error in getAiAdvice:', error);
-    throw new Error(`Failed to get AI advice: ${error.message || 'An unknown error occurred with the AI assistant.'}`);
+    console.error('getAiAdvice error:', error);
+    throw new Error(`AI Service Error: ${error.message || 'The assistant is currently unavailable.'}`);
   }
 }
 
@@ -135,22 +131,12 @@ export async function getAiAdviceFromVoice(
   language: string,
   userId: string
 ): Promise<ChatAssistantOutput> {
-  if (!audioDataUri) {
-    throw new Error('Audio data cannot be empty.');
-  }
-
   try {
     const { transcription } = await transcribeVoiceToText({ audioDataUri });
-
-    if (!transcription) {
-      throw new Error('Transcription failed.');
-    }
-
-    const response = await getAiAdvice(transcription, language, userId);
-    return response;
+    if (!transcription) throw new Error('Transcription failed.');
+    return await getAiAdvice(transcription, language, userId);
   } catch (error: any) {
-    console.error('Error in getAiAdviceFromVoice:', error);
-    throw new Error(`Failed to process voice advice: ${error.message}`);
+    throw new Error(`Voice Processing Error: ${error.message}`);
   }
 }
 
@@ -158,31 +144,21 @@ export async function getAiDiagnosisForCrop(
   photoDataUri: string,
   language: string
 ): Promise<DiagnoseCropDiseaseOutput> {
-  if (!photoDataUri) {
-    throw new Error('Photo data cannot be empty.');
-  }
-
   try {
-    const response = await diagnoseCropDisease({ photoDataUri, language });
-    return response;
+    return await diagnoseCropDisease({ photoDataUri, language });
   } catch (error: any) {
-    console.error('Error in getAiDiagnosisForCrop:', error);
-    throw new Error(`Failed to get crop diagnosis: ${error.message}`);
+    throw new Error(`Diagnosis Error: ${error.message}`);
   }
 }
 
 export async function getDashboardData(userId: string) {
     const weatherData = await getWeather(userId);
-
-    if (!weatherData) {
-      return { weatherData: null, insights: null, marketData: [] };
-    }
+    if (!weatherData) return { weatherData: null, insights: null, marketData: [] };
     
     const [marketData, farmerProfile] = await Promise.all([
       getMarketData(),
       getFarmerProfile(userId)
     ]);
-
 
     const insights = await getDashboardInsights({
       location: weatherData.location,
@@ -199,19 +175,13 @@ export async function getDashboardData(userId: string) {
 }
 
 export async function seedMarketData(userId: string) {
-  if (!userId) {
-    return { success: false, message: "User not found." };
-  }
   try {
     const { firestore } = await initializeServerApp();
     const farmerProfile = await getFarmerProfile(userId);
     const region = farmerProfile?.location?.split(',')[1]?.trim() || 'Maharashtra';
     
     const { crops } = await suggestCrops({ region });
-    
-    if (!crops || crops.length === 0) {
-      throw new Error("AI failed to suggest any crops.");
-    }
+    if (!crops || crops.length === 0) throw new Error("AI failed to suggest crops.");
 
     const batch = firestore.batch();
     const marketRef = firestore.collection('market_data');
@@ -222,9 +192,8 @@ export async function seedMarketData(userId: string) {
     });
 
     await batch.commit();
-    return { success: true, message: "AI-suggested market data seeded successfully!" };
+    return { success: true, message: "Market data seeded!" };
   } catch (error: any) {
-    console.error("Error seeding market data:", error);
-    return { success: false, message: `Failed to seed data: ${error.message}` };
+    return { success: false, message: error.message };
   }
 }

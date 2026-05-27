@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -55,51 +54,33 @@ export function AuthForm() {
     try {
       if (activeTab === "login") {
         await signInWithEmailAndPassword(auth, data.email, data.password);
-        toast({
-          title: "Login Successful",
-          description: "Welcome back!",
-        });
+        toast({ title: "Welcome back!", description: "Signed in successfully." });
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
         const user = userCredential.user;
 
         if (user && firestore) {
-            const userDocRef = doc(firestore, `farmers/${user.uid}`);
-            const profileData = {
-                id: user.uid,
-                email: user.email,
-                name: user.email?.split('@')[0] || 'New Farmer',
-                location: 'Unknown',
-                cropsGrown: [],
-                preferredLanguage: 'en'
-            };
-            
-            // Correctly use the standard setDoc for client-side operations
-            setDoc(userDocRef, profileData, { merge: true }).catch(async (serverError) => {
-                const permissionError = new FirestorePermissionError({
-                  path: userDocRef.path,
-                  operation: 'create',
-                  requestResourceData: profileData,
-                });
-                errorEmitter.emit('permission-error', permissionError);
-                toast({
-                    variant: "destructive",
-                    title: "Database Error",
-                    description: "Failed to create user profile. Please check permissions."
-                });
-            });
+          const userDocRef = doc(firestore, `farmers/${user.uid}`);
+          const profileData = {
+            id: user.uid,
+            email: user.email,
+            name: user.email?.split('@')[0] || 'Farmer',
+            location: '',
+            cropsGrown: [],
+            preferredLanguage: 'en'
+          };
+          
+          // Direct client-side creation of profile
+          await setDoc(userDocRef, profileData, { merge: true });
         }
         
-        toast({
-          title: "Signup Successful",
-          description: "Your account has been created. Please complete your profile.",
-        });
+        toast({ title: "Account created!", description: "Welcome to AgriAdvisor AI." });
       }
     } catch (error: any) {
       toast({
         variant: "destructive",
-        title: "Authentication Error",
-        description: error.message || "An unexpected error occurred.",
+        title: "Auth Error",
+        description: error.message || "Could not authenticate.",
       });
     } finally {
       setIsLoading(false);
@@ -113,16 +94,14 @@ export function AuthForm() {
         <TabsTrigger value="signup">Sign Up</TabsTrigger>
       </TabsList>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(handleAuthAction)} className="space-y-8 mt-4">
+        <form onSubmit={form.handleSubmit(handleAuthAction)} className="space-y-4 mt-6">
           <FormField
             control={form.control}
             name="email"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Email</FormLabel>
-                <FormControl>
-                  <Input type="email" placeholder="you@example.com" {...field} />
-                </FormControl>
+                <FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )}
@@ -133,19 +112,14 @@ export function AuthForm() {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Password</FormLabel>
-                <FormControl>
-                  <Input type="password" placeholder="••••••••" {...field} />
-                </FormControl>
+                <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-            <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading 
-                    ? (activeTab === 'login' ? 'Signing In...' : 'Creating Account...') 
-                    : (activeTab === 'login' ? 'Sign In' : 'Create Account')
-                }
-            </Button>
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? "Processing..." : (activeTab === 'login' ? 'Sign In' : 'Create Account')}
+          </Button>
         </form>
       </Form>
     </Tabs>
