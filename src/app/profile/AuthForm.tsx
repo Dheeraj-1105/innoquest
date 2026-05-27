@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -22,8 +23,6 @@ import {
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { errorEmitter } from "@/firebase/error-emitter";
-import { FirestorePermissionError } from "@/firebase/errors";
 
 const authSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address." }),
@@ -70,7 +69,7 @@ export function AuthForm() {
             preferredLanguage: 'en'
           };
           
-          // Direct client-side creation of profile
+          // Direct client-side creation of profile using standard Firebase SDK
           await setDoc(userDocRef, profileData, { merge: true });
         }
         

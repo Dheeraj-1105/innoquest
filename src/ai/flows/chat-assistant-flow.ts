@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -105,7 +106,7 @@ FARMER'S QUERY:
 INSTRUCTIONS:
 1. Use 'getSchemeInfo' if the query is about government support or loans.
 2. Provide specific advice for their crops and current weather.
-3. Keep the response helpful and empathetic.
+3. Keep the response helpful, practical, and empathetic.
 `,
 });
 

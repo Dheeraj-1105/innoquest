@@ -1,3 +1,4 @@
+
 'use server';
 import { config } from 'dotenv';
 config();
@@ -38,7 +39,7 @@ export async function getWeather(userId: string) {
   const location = farmerProfile?.location?.split(',')[0].trim().toLowerCase() || 'pune';
   const apiKey = process.env.OPENWEATHER_API_KEY;
 
-  if (!apiKey) {
+  if (!apiKey || apiKey === 'YOUR_OPENWEATHER_API_KEY') {
     return {
       temperature: 28, humidity: 75, rainfall: 0.5,
       location: 'Pune (Mock)', weatherCondition: 'Haze'
@@ -48,7 +49,10 @@ export async function getWeather(userId: string) {
   try {
     const url = `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}&units=metric`;
     const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) return null;
+    if (!response.ok) return {
+      temperature: 28, humidity: 75, rainfall: 0.5,
+      location: 'Pune (Mock)', weatherCondition: 'Haze'
+    };
     const data = await response.json();
     return {
       temperature: data.main.temp,
@@ -59,7 +63,10 @@ export async function getWeather(userId: string) {
     };
   } catch (error) {
     console.error('getWeather error:', error);
-    return null;
+    return {
+      temperature: 28, humidity: 75, rainfall: 0.5,
+      location: 'Pune (Mock)', weatherCondition: 'Haze'
+    };
   }
 }
 
@@ -131,13 +138,13 @@ export async function getAiDiagnosisForCrop(
 }
 
 export async function getDashboardData(userId: string) {
-  const weatherData = await getWeather(userId);
-  if (!weatherData) return { weatherData: null, insights: null, marketData: [] };
-  
-  const [marketData, farmerProfile] = await Promise.all([
+  const [weatherData, marketData, farmerProfile] = await Promise.all([
+    getWeather(userId),
     getMarketData(),
     getFarmerProfile(userId)
   ]);
+
+  if (!weatherData) return { weatherData: null, insights: null, marketData: [] };
 
   const insights = await getDashboardInsights({
     location: weatherData.location,
