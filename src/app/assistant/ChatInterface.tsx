@@ -5,7 +5,18 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp, ArrowUpRight, Loader2 } from "lucide-react";
+import { Mic, Send, Bot, User, Languages, Cloud, BarChartHorizontal, ImageUp, ArrowUpRight, Loader2, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -20,7 +31,7 @@ import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import Link from "next/link";
 import { collection, addDoc, serverTimestamp, query, orderBy, Timestamp } from "firebase/firestore";
-import { getAiAdvice, getAiDiagnosisForCrop, getAiAdviceFromVoice } from "../actions";
+import { getAiAdvice, getAiDiagnosisForCrop, getAiAdviceFromVoice, clearChatHistory } from "../actions";
 
 type MessageContent =
   | string
@@ -48,6 +59,7 @@ export function ChatInterface() {
   const [language, setLanguage] = useState("en");
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -91,6 +103,23 @@ export function ChatInterface() {
       });
     } catch (error) {
       console.error("Database error:", error);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!user) return;
+    setIsClearingHistory(true);
+    try {
+      const result = await clearChatHistory(user.uid);
+      if (result.success) {
+        toast({ title: "Chat Cleared", description: "Your conversation history has been deleted." });
+      } else {
+        toast({ variant: "destructive", title: "Error", description: result.message });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    } finally {
+      setIsClearingHistory(false);
     }
   };
 
@@ -243,6 +272,43 @@ export function ChatInterface() {
               {languages.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
             </SelectContent>
           </Select>
+
+          {/* Clear Chat History Button */}
+          {user && messages && messages.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full transition-colors"
+                  disabled={isClearingHistory || isLoading}
+                  title="Clear chat history"
+                >
+                  {isClearingHistory
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Trash2 className="w-4 h-4" />}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear Chat History?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all your conversation history with AgriAdvisor.
+                    This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleClearHistory}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Delete All Messages
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 

@@ -29,6 +29,7 @@ const navLinks = [
   { href: '/', label: 'Home' },
   { href: '/assistant', label: 'AI Assistant' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/weather', label: '🌤 Weather' },
   { href: '/market', label: 'Market' },
   { href: '/about', label: 'About' },
   { href: '/contact', label: 'Contact' },

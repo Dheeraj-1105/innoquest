@@ -1,32 +1,39 @@
+
 'use server';
 
 /**
- * @fileOverview Transcribe voice to text using AI.
+ * @fileOverview Transcribe voice audio to text using Groq Whisper.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { groq, GROQ_AUDIO_MODEL } from '@/ai/groq-client';
 
-const TranscribeVoiceToTextInputSchema = z.object({
-  audioDataUri: z.string(),
-});
-export type TranscribeVoiceToTextInput = z.infer<typeof TranscribeVoiceToTextInputSchema>;
+export type TranscribeVoiceToTextInput = {
+  audioDataUri: string;
+};
 
-const TranscribeVoiceToTextOutputSchema = z.object({
-  transcription: z.string(),
-});
-export type TranscribeVoiceToTextOutput = z.infer<typeof TranscribeVoiceToTextOutputSchema>;
-
-const transcribePrompt = ai.definePrompt({
-  name: 'transcribeVoiceToTextPrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: { schema: TranscribeVoiceToTextInputSchema },
-  output: { schema: TranscribeVoiceToTextOutputSchema },
-  prompt: `Transcribe the following audio accurately to text:
-Audio: {{media url=audioDataUri}}`,
-});
+export type TranscribeVoiceToTextOutput = {
+  transcription: string;
+};
 
 export async function transcribeVoiceToText(input: TranscribeVoiceToTextInput): Promise<TranscribeVoiceToTextOutput> {
-  const { output } = await transcribePrompt(input);
-  return output!;
+  // Parse the data URI: "data:audio/webm;base64,<base64data>"
+  const matches = input.audioDataUri.match(/^data:([^;]+);base64,(.+)$/);
+  if (!matches) throw new Error('Invalid audio data URI format');
+
+  const mimeType = matches[1];
+  const base64Data = matches[2];
+  const buffer = Buffer.from(base64Data, 'base64');
+
+  // Create a File object from the buffer
+  const audioFile = new File([buffer], 'recording.webm', { type: mimeType });
+
+  const transcription = await groq.audio.transcriptions.create({
+    file: audioFile,
+    model: GROQ_AUDIO_MODEL,
+    response_format: 'json',
+  });
+
+  return {
+    transcription: transcription.text || '',
+  };
 }

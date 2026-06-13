@@ -1,40 +1,62 @@
+
 'use server';
 
 /**
- * @fileOverview A flow to diagnose crop diseases from an image.
+ * @fileOverview Diagnose crop diseases from an image using Groq vision model.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { groq, GROQ_VISION_MODEL } from '@/ai/groq-client';
 
-const DiagnoseCropDiseaseInputSchema = z.object({
-  photoDataUri: z
-    .string()
-    .describe(
-      "A photo of a diseased crop, as a data URI that must include a MIME type and use Base64 encoding."
-    ),
-  language: z.string().describe('The farmer’s preferred language.'),
-});
-export type DiagnoseCropDiseaseInput = z.infer<typeof DiagnoseCropDiseaseInputSchema>;
+export type DiagnoseCropDiseaseInput = {
+  photoDataUri: string;
+  language: string;
+};
 
-const DiagnoseCropDiseaseOutputSchema = z.object({
-  disease: z.string().describe('The identified disease or pest.'),
-  recommendation: z.string().describe('The recommended course of action.'),
-});
-export type DiagnoseCropDiseaseOutput = z.infer<typeof DiagnoseCropDiseaseOutputSchema>;
+export type DiagnoseCropDiseaseOutput = {
+  disease: string;
+  recommendation: string;
+};
 
-const diagnoseCropDiseasePrompt = ai.definePrompt({
-  name: 'diagnoseCropDiseasePrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: { schema: DiagnoseCropDiseaseInputSchema },
-  output: { schema: DiagnoseCropDiseaseOutputSchema },
-  prompt: `You are an expert plant pathologist. 
-Identify the disease in the image and provide actionable recommendations in {{{language}}}.
-
-Crop Image: {{media url=photoDataUri}}`,
-});
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English', hi: 'Hindi', te: 'Telugu', ta: 'Tamil',
+};
 
 export async function diagnoseCropDisease(input: DiagnoseCropDiseaseInput): Promise<DiagnoseCropDiseaseOutput> {
-  const { output } = await diagnoseCropDiseasePrompt(input);
-  return output!;
+  const langName = LANGUAGE_NAMES[input.language] || 'English';
+
+  const completion = await groq.chat.completions.create({
+    model: GROQ_VISION_MODEL,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: `You are an expert plant pathologist. Analyze this crop image carefully.
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "disease": "Name of the disease, pest, or condition identified (say 'Healthy Crop' if no disease)",
+  "recommendation": "Specific treatment and prevention advice in ${langName}"
+}`,
+          },
+          {
+            type: 'image_url',
+            image_url: { url: input.photoDataUri },
+          },
+        ],
+      },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.3,
+    max_tokens: 512,
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error('No response from AI vision model');
+
+  const parsed = JSON.parse(content);
+  return {
+    disease: parsed.disease || 'Unable to identify',
+    recommendation: parsed.recommendation || 'Please consult a local agricultural expert.',
+  };
 }

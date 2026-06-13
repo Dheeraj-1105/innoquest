@@ -90,20 +90,24 @@ export function useCollection<T = any>(
             ? (memoizedTargetRefOrQuery as CollectionReference).path
             : (memoizedTargetRefOrQuery as unknown as InternalQuery)._query.path.canonicalString()
 
-        const contextualError = new FirestorePermissionError({
-          operation: 'list',
-          path,
-        })
-        
-        // Don't set a permissions error if we are offline, as it's expected.
-        if (error.code !== 'unavailable') {
-            setError(contextualError);
-            // trigger global error propagation
-            errorEmitter.emit('permission-error', contextualError);
+        // Only treat actual permission-denied errors as global permission errors.
+        // Other error codes (unavailable, not-found, cancelled, etc.) are transient
+        // and should NOT crash the UI with a global error dialog.
+        if (error.code === 'permission-denied') {
+          const contextualError = new FirestorePermissionError({
+            operation: 'list',
+            path,
+          });
+          setError(contextualError);
+          errorEmitter.emit('permission-error', contextualError);
+        } else if (error.code !== 'unavailable') {
+          // For other non-fatal errors, log silently — don't crash the UI
+          console.warn(`Firestore listener error on "${path}":`, error.code, error.message);
+          setError(error);
         }
 
-        setData(null)
-        setIsLoading(false)
+        setData(null);
+        setIsLoading(false);
       }
     );
 

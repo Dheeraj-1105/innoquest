@@ -1,35 +1,58 @@
+
 'use server';
 
 /**
- * @fileOverview An AI flow to suggest high-demand crops for a given region.
+ * @fileOverview Suggest high-demand crops for a region using Groq.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { groq, GROQ_TEXT_MODEL } from '@/ai/groq-client';
 
-const SuggestCropsInputSchema = z.object({
-  region: z.string().describe('Agricultural region.'),
-});
-export type SuggestCropsInput = z.infer<typeof SuggestCropsInputSchema>;
+export type SuggestCropsInput = {
+  region: string;
+};
 
-const SuggestCropsOutputSchema = z.object({
-  crops: z.array(z.object({
-    cropName: z.string(),
-    pricePerKg: z.number(),
-    reason: z.string()
-  })),
-});
-export type SuggestCropsOutput = z.infer<typeof SuggestCropsOutputSchema>;
-
-const suggestCropsPrompt = ai.definePrompt({
-  name: 'suggestCropsPrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: { schema: SuggestCropsInputSchema },
-  output: { schema: SuggestCropsOutputSchema },
-  prompt: `As an agricultural analyst, suggest 5-7 high-demand crops for the region: {{{region}}}. Provide realistic INR prices per Kg and a brief reason.`,
-});
+export type SuggestCropsOutput = {
+  crops: Array<{
+    cropName: string;
+    pricePerKg: number;
+    reason: string;
+  }>;
+};
 
 export async function suggestCrops(input: SuggestCropsInput): Promise<SuggestCropsOutput> {
-  const { output } = await suggestCropsPrompt(input);
-  return output!;
+  const completion = await groq.chat.completions.create({
+    model: GROQ_TEXT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: `You are an agricultural market analyst for India.
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "crops": [
+    {
+      "cropName": "Crop name",
+      "pricePerKg": 45.5,
+      "reason": "One sentence reason why this crop is profitable"
+    }
+  ]
+}
+Suggest exactly 6 high-demand crops with realistic INR market prices per kg.`,
+      },
+      {
+        role: 'user',
+        content: `Suggest the best 6 high-demand, profitable crops for the region: ${input.region}. Use current realistic Indian market prices.`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.6,
+    max_tokens: 512,
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return {
+    crops: parsed.crops || [],
+  };
 }

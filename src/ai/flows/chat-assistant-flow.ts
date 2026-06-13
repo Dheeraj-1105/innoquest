@@ -2,118 +2,116 @@
 'use server';
 
 /**
- * @fileOverview AI-powered chat assistant for farmers.
+ * @fileOverview AI-powered chat assistant for farmers using Groq.
  * Provides personalized agricultural advice based on profile, weather, and market data.
  */
 
-import { ai } from '@/ai/genkit';
+import { groq, GROQ_TEXT_MODEL } from '@/ai/groq-client';
 import { governmentSchemes } from '@/lib/schemes';
-import { z } from 'genkit';
 
-const getSchemeInfo = ai.defineTool(
-  {
-    name: 'getSchemeInfo',
-    description: 'Get information about a specific government agricultural scheme.',
-    inputSchema: z.object({
-      schemeKeywords: z.array(z.string()).describe('Keywords related to the scheme name.'),
-    }),
-    outputSchema: z.array(z.object({
-      name: z.string(),
-      description: z.string(),
-      eligibility: z.string(),
-      link: z.string(),
-    })),
-  },
-  async (input) => {
-    const searchKeywords = input.schemeKeywords.map(k => k.toLowerCase());
-    const relevantSchemes = governmentSchemes.filter(scheme => 
-      searchKeywords.some(searchKeyword => 
-        scheme.keywords.some(schemeKeyword => schemeKeyword.includes(searchKeyword))
-      )
-    );
-    return relevantSchemes.map(s => ({
-      name: s.title,
-      description: s.description,
-      eligibility: s.eligibility,
-      link: s.link
-    }));
-  }
-);
+export type ChatAssistantInput = {
+  query: string;
+  language: string;
+  farmerProfile?: {
+    name?: string;
+    location?: string;
+    cropsGrown?: string[];
+    preferredLanguage?: string;
+  };
+  weather?: {
+    temperature: number;
+    humidity: number;
+    rainfall: number;
+  };
+  market?: Array<{
+    cropName: string;
+    pricePerKg: number;
+  }>;
+};
 
-const FarmerProfileSchema = z.object({
-  name: z.string().optional(),
-  location: z.string().optional(),
-  cropsGrown: z.array(z.string()).optional(),
-  preferredLanguage: z.string().optional(),
-});
+export type ChatAssistantOutput = {
+  advice: string;
+  language: string;
+  weatherSummary?: string;
+  marketSummary?: string;
+};
 
-const WeatherDataSchema = z.object({
-    temperature: z.number(),
-    humidity: z.number(),
-    rainfall: z.number(),
-});
-
-const MarketDataSchema = z.object({
-    cropName: z.string(),
-    pricePerKg: z.number(),
-});
-
-const ChatAssistantInputSchema = z.object({
-  query: z.string(),
-  language: z.string(),
-  farmerProfile: FarmerProfileSchema.optional(),
-  weather: WeatherDataSchema.optional(),
-  market: z.array(MarketDataSchema).optional(),
-});
-export type ChatAssistantInput = z.infer<typeof ChatAssistantInputSchema>;
-
-const ChatAssistantOutputSchema = z.object({
-  advice: z.string(),
-  language: z.string(),
-  weatherSummary: z.string().optional(),
-  marketSummary: z.string().optional(),
-});
-export type ChatAssistantOutput = z.infer<typeof ChatAssistantOutputSchema>;
-
-const chatAssistantPrompt = ai.definePrompt({
-  name: 'chatAssistantPrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: { schema: ChatAssistantInputSchema },
-  output: { schema: ChatAssistantOutputSchema },
-  tools: [getSchemeInfo],
-  prompt: `You are an expert AI agricultural advisor named "AgriAdvisor". 
-Provide actionable advice in the requested language: {{{language}}}.
-
-CONTEXT:
-{{#if farmerProfile}}
-- Farmer: {{farmerProfile.name}} in {{farmerProfile.location}}. Crops: {{#each farmerProfile.cropsGrown}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
-{{/if}}
-
-{{#if weather}}
-- Current Weather: {{weather.temperature}}°C, {{weather.humidity}}% humidity, {{weather.rainfall}}mm rain.
-{{/if}}
-
-{{#if market}}
-- Local Market Prices:
-  {{#each market}}
-  - {{this.cropName}}: ₹{{this.pricePerKg}}/kg
-  {{/each}}
-{{/if}}
-
-FARMER'S QUERY:
-"{{{query}}}"
-
-INSTRUCTIONS:
-1. Use 'getSchemeInfo' if the query is about government support, subsidies, or loans.
-2. Provide specific advice for their crops and current weather conditions.
-3. Keep the response helpful, practical, and empathetic. Use Markdown for formatting.
-`,
-});
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English', hi: 'Hindi', te: 'Telugu', ta: 'Tamil',
+};
 
 export async function chatAssistant(input: ChatAssistantInput): Promise<ChatAssistantOutput> {
-  const { output } = await chatAssistantPrompt(input);
-  if (!output) {
-    throw new Error('AI failed to generate a response.');
+  const langName = LANGUAGE_NAMES[input.language] || 'English';
+
+  // Build context sections
+  const contextParts: string[] = [];
+
+  if (input.farmerProfile) {
+    const p = input.farmerProfile;
+    const crops = p.cropsGrown?.join(', ') || 'not specified';
+    contextParts.push(`Farmer Profile: ${p.name || 'Farmer'} in ${p.location || 'India'}. Growing: ${crops}`);
   }
-  return output;
+
+  if (input.weather) {
+    contextParts.push(
+      `Current Weather: ${input.weather.temperature}°C, ${input.weather.humidity}% humidity, ${input.weather.rainfall}mm rainfall`
+    );
+  }
+
+  if (input.market?.length) {
+    const prices = input.market.map(m => `${m.cropName}: ₹${m.pricePerKg}/kg`).join(', ');
+    contextParts.push(`Market Prices: ${prices}`);
+  }
+
+  // Include relevant government schemes if query is about subsidies/loans/schemes
+  const queryLower = input.query.toLowerCase();
+  const schemeKeywords = ['scheme', 'subsidy', 'subsidies', 'loan', 'government', 'yojana', 'support', 'grant', 'benefit'];
+  if (schemeKeywords.some(k => queryLower.includes(k))) {
+    const relevant = governmentSchemes.slice(0, 3);
+    const schemeInfo = relevant.map(s => `• ${s.title}: ${s.description} (Apply: ${s.link})`).join('\n');
+    contextParts.push(`Relevant Government Schemes:\n${schemeInfo}`);
+  }
+
+  const contextBlock = contextParts.length > 0
+    ? `\nCONTEXT:\n${contextParts.join('\n')}\n`
+    : '';
+
+  const systemPrompt = `You are "AgriAdvisor", an expert AI agricultural assistant for Indian farmers.
+Always respond in ${langName}. Be practical, empathetic, and specific.
+Use simple language farmers can understand. Format your advice clearly.
+
+You MUST respond with a valid JSON object in this exact format:
+{
+  "advice": "Your detailed agricultural advice here (use \\n for line breaks)",
+  "language": "${input.language}",
+  "weatherSummary": "One sentence about weather impact on crops (or null)",
+  "marketSummary": "One sentence about market opportunity (or null)"
+}`;
+
+  const userMessage = `${contextBlock}
+FARMER'S QUESTION: "${input.query}"
+
+Provide helpful, actionable advice. Respond ONLY with the JSON object.`;
+
+  const completion = await groq.chat.completions.create({
+    model: GROQ_TEXT_MODEL,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.7,
+    max_tokens: 1024,
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return {
+    advice: parsed.advice || 'Could not generate advice. Please try again.',
+    language: parsed.language || input.language,
+    weatherSummary: parsed.weatherSummary || undefined,
+    marketSummary: parsed.marketSummary || undefined,
+  };
 }

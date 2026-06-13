@@ -1,51 +1,80 @@
+
 'use server';
 
 /**
- * @fileOverview An AI flow to generate dynamic dashboard insights based on live weather.
+ * @fileOverview Generate dashboard insights using Groq.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { groq, GROQ_TEXT_MODEL } from '@/ai/groq-client';
 
-const DashboardInsightsInputSchema = z.object({
-  location: z.string().describe('Farm location.'),
-  weather: z.object({
-    temperature: z.number(),
-    humidity: z.number(),
-    rainfall: z.number(),
-    weatherCondition: z.string()
-  }),
-  crops: z.array(z.string()).optional(),
-});
-export type DashboardInsightsInput = z.infer<typeof DashboardInsightsInputSchema>;
+export type DashboardInsightsInput = {
+  location: string;
+  weather: {
+    temperature: number;
+    humidity: number;
+    rainfall: number;
+    weatherCondition: string;
+  };
+  crops?: string[];
+};
 
-const DashboardInsightsOutputSchema = z.object({
-  soilHealth: z.object({
-    status: z.string(),
-    recommendation: z.string(),
-  }),
-  pestAlerts: z.array(z.object({
-    pestName: z.string(),
-    severity: z.enum(['Low', 'Medium', 'High']),
-    recommendation: z.string(),
-  })),
-});
-export type DashboardInsightsOutput = z.infer<typeof DashboardInsightsOutputSchema>;
-
-const getDashboardInsightsPrompt = ai.definePrompt({
-  name: 'getDashboardInsightsPrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: { schema: DashboardInsightsInputSchema },
-  output: { schema: DashboardInsightsOutputSchema },
-  prompt: `You are an expert agronomist. Generate actionable soil and pest insights for this context:
-Location: {{{location}}}
-Weather: {{weather.temperature}}°C, {{weather.humidity}}% humidity. Condition: {{{weather.weatherCondition}}}.
-Crops: {{#each crops}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
-
-Provide concise, practical advice for a farmer's dashboard.`,
-});
+export type DashboardInsightsOutput = {
+  soilHealth: {
+    status: string;
+    recommendation: string;
+  };
+  pestAlerts: Array<{
+    pestName: string;
+    severity: 'Low' | 'Medium' | 'High';
+    recommendation: string;
+  }>;
+};
 
 export async function getDashboardInsights(input: DashboardInsightsInput): Promise<DashboardInsightsOutput> {
-  const { output } = await getDashboardInsightsPrompt(input);
-  return output!;
+  const cropsList = input.crops?.length ? input.crops.join(', ') : 'general crops';
+
+  const completion = await groq.chat.completions.create({
+    model: GROQ_TEXT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: `You are an expert agronomist providing dashboard insights for Indian farmers.
+Respond ONLY with a valid JSON object in this exact format:
+{
+  "soilHealth": {
+    "status": "Good/Fair/Poor",
+    "recommendation": "One specific actionable soil recommendation"
+  },
+  "pestAlerts": [
+    {
+      "pestName": "Pest or disease name",
+      "severity": "Low|Medium|High",
+      "recommendation": "One specific prevention or treatment tip"
+    }
+  ]
+}
+Include 1-3 pest alerts relevant to the weather and crops.`,
+      },
+      {
+        role: 'user',
+        content: `Location: ${input.location}
+Weather: ${input.weather.temperature}°C, ${input.weather.humidity}% humidity, ${input.weather.rainfall}mm rainfall, Condition: ${input.weather.weatherCondition}
+Crops being grown: ${cropsList}
+
+Generate concise dashboard insights for this farmer.`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.5,
+    max_tokens: 512,
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return {
+    soilHealth: parsed.soilHealth || { status: 'Fair', recommendation: 'Monitor soil moisture regularly.' },
+    pestAlerts: parsed.pestAlerts || [],
+  };
 }

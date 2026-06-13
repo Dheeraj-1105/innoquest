@@ -1,33 +1,45 @@
+
 'use server';
 
 /**
- * @fileOverview Translate native language query to English.
+ * @fileOverview Translate native language query to English using Groq.
  */
 
-import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { groq, GROQ_TEXT_MODEL } from '@/ai/groq-client';
 
-const TranslateUserQueryInputSchema = z.object({
-  query: z.string(),
-  sourceLanguage: z.string(),
-});
-export type TranslateUserQueryInput = z.infer<typeof TranslateUserQueryInputSchema>;
+export type TranslateUserQueryInput = {
+  query: string;
+  sourceLanguage: string;
+};
 
-const TranslateUserQueryOutputSchema = z.object({
-  translatedQuery: z.string(),
-});
-export type TranslateUserQueryOutput = z.infer<typeof TranslateUserQueryOutputSchema>;
-
-const translatePrompt = ai.definePrompt({
-  name: 'translateUserQueryPrompt',
-  model: 'googleai/gemini-1.5-flash',
-  input: { schema: TranslateUserQueryInputSchema },
-  output: { schema: TranslateUserQueryOutputSchema },
-  prompt: `Translate from {{sourceLanguage}} to English:
-"{{{query}}}"`,
-});
+export type TranslateUserQueryOutput = {
+  translatedQuery: string;
+};
 
 export async function translateUserQuery(input: TranslateUserQueryInput): Promise<TranslateUserQueryOutput> {
-  const { output } = await translatePrompt(input);
-  return output!;
+  const completion = await groq.chat.completions.create({
+    model: GROQ_TEXT_MODEL,
+    messages: [
+      {
+        role: 'system',
+        content: `You are a translator. Translate the given text to English accurately.
+Respond ONLY with a valid JSON object: {"translatedQuery": "the translated text"}`,
+      },
+      {
+        role: 'user',
+        content: `Translate this ${input.sourceLanguage} text to English:\n"${input.query}"`,
+      },
+    ],
+    response_format: { type: 'json_object' },
+    temperature: 0.1,
+    max_tokens: 256,
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) throw new Error('No response from AI');
+
+  const parsed = JSON.parse(content);
+  return {
+    translatedQuery: parsed.translatedQuery || input.query,
+  };
 }
